@@ -5,7 +5,7 @@ import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { authenticate, createSession, createUser, destroySession, setUserDisabled, userCount, ROLES, type Role } from "@/server/auth";
 import { addMember, createProject, removeMember, updateProject, type ProjectSettings } from "@/server/projects";
-import { createAuditRun, requestCancel } from "@/server/runs";
+import { ActiveAuditError, createAuditRun, requestCancel } from "@/server/runs";
 import { bulkReview, reviewIssue, type ReviewAction } from "@/server/issues";
 import { createExport, type ExportFormat, type ExportFilters } from "@/server/exports";
 import { createPackage, revokePackage, submitDecisions, type Decision } from "@/server/approvals";
@@ -151,7 +151,18 @@ export async function removeMemberAction(fd: FormData) {
 // ── Audits ──────────────────────────────────────────────────────────────
 
 export async function startAuditAction(_: ActionState, fd: FormData): Promise<ActionState> {
-  return attempt(async () => {
+  try {
+    return await startAudit(fd);
+  } catch (e) {
+    unstable_rethrow(e);
+    // Point the user at the audit that's already queued instead of creating a duplicate.
+    if (e instanceof ActiveAuditError) return { error: e.message, link: `/audits/${e.runId}` };
+    return { error: (e as Error).message || "The audit could not be started." };
+  }
+}
+
+async function startAudit(fd: FormData): Promise<ActionState> {
+  {
     const user = await requireUser("audit:start");
     const urls = str(fd, "urls").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
     const runId = await createAuditRun(user, str(fd, "projectId"), {
@@ -168,7 +179,7 @@ export async function startAuditAction(_: ActionState, fd: FormData): Promise<Ac
       },
     });
     redirect(`/audits/${runId}`);
-  });
+  }
 }
 
 export async function cancelAuditAction(fd: FormData) {

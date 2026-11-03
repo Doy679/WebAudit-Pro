@@ -1,7 +1,8 @@
 // Background worker: claims audit and export jobs from the database and runs them outside the web server.
 // Start with `npm run worker` (or `npm run dev`, which starts web + worker together).
 import { existsSync } from "node:fs";
-import { claimNextJob, failOrphanedRuns, finishJob } from "../server/runs";
+import { claimNextJob, recoverOrphanedRuns, finishJob } from "../server/runs";
+import { beat, registerWorker, stopWorker } from "../server/worker-status";
 import { processAudit } from "./audit-job";
 import { processExport } from "./export-job";
 import { claimGoogleTask, processGoogleTask } from "../server/google/service";
@@ -21,6 +22,10 @@ async function loop(type: "audit" | "export", handle: (refId: string) => Promise
       continue;
     }
     log(`${type} job ${job.id} started (${job.ref_id})`);
+    if (type === "audit") {
+      currentRun = job.ref_id;
+      beat(workerId, "online", currentRun); // record the current audit immediately, not on the next 5 s tick
+    }
     try {
       const status = await handle(job.ref_id);
       finishJob(job.id, status);
@@ -28,21 +33,44 @@ async function loop(type: "audit" | "export", handle: (refId: string) => Promise
     } catch (e) {
       finishJob(job.id, "failed", (e as Error).message);
       log(`${type} job ${job.id} crashed: ${(e as Error).message}`);
+    } finally {
+      if (type === "audit") {
+        currentRun = null;
+        beat(workerId, "online", null);
+      }
     }
   }
 }
 
+// Single instance: a second worker would compete for the same database (claims are atomic, but one is enough).
+let workerId: string;
+try {
+  workerId = registerWorker();
+} catch (e) {
+  log((e as Error).message);
+  process.exit(1);
+}
+let currentRun: string | null = null;
+// Heartbeat on its own timer, so long audit phases never make a healthy worker look offline.
+const heartbeat = setInterval(() => {
+  try { beat(workerId, "online", currentRun); } catch (e) { log(`heartbeat failed: ${(e as Error).message}`); }
+}, 5000);
+
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     stopping = true;
-    log("Stopping after current jobs… (a running audit will be marked interrupted on next start)");
-    setTimeout(() => process.exit(0), 2000);
+    clearInterval(heartbeat);
+    stopWorker(workerId);
+    log("Worker stopped. A running audit is requeued automatically when the worker starts again.");
+    setTimeout(() => process.exit(0), 500);
   });
 }
 
-const orphaned = failOrphanedRuns();
-if (orphaned) log(`Marked ${orphaned} interrupted audit(s) as failed.`);
-log("Waiting for jobs…");
+const recovered = recoverOrphanedRuns();
+if (recovered.requeued) log(`Requeued ${recovered.requeued} audit(s) interrupted by a previous worker stop.`);
+if (recovered.failed) log(`Marked ${recovered.failed} repeatedly interrupted audit(s) as failed.`);
+beat(workerId, "online");
+log("Worker online. Waiting for jobs…");
 
 /** Google requests: one at a time with a pause between them, to stay well inside API quotas. */
 async function googleLoop() {

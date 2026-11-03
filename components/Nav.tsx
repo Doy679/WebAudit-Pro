@@ -21,7 +21,7 @@ const ITEMS = [
 const isActive = (path: string, href: string) =>
   href === "/" ? path === "/" : href === "/audits" ? path === "/audits" || /^\/audits\/(?!new)/.test(path) : path.startsWith(href);
 
-export function Nav({ userName, roleLabel, logout }: { userName: string; roleLabel: string; logout: () => Promise<void> }) {
+export function Nav({ userName, roleLabel, logout, worker }: { userName: string; roleLabel: string; logout: () => Promise<void>; worker: { state: string; label: string } }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   return (
@@ -63,6 +63,10 @@ export function Nav({ userName, roleLabel, logout }: { userName: string; roleLab
         <div className="border-t border-white/10 px-5 py-4 text-sm">
           <div className="truncate font-medium">{userName}</div>
           <div className="text-xs text-white/60">{roleLabel}</div>
+          <div className="mt-2 flex items-center gap-1.5 text-xs" data-testid="nav-worker" data-state={worker.state} title="Background audit worker">
+            <span className={cx("inline-block h-2 w-2 rounded-full", worker.state === "online" ? "bg-green-400" : worker.state === "starting" ? "bg-sky-300" : "bg-amber-400")} />
+            {worker.label}
+          </div>
           <form action={logout} className="mt-2">
             <button type="submit" className="text-xs text-white/80 underline hover:text-white">Sign out</button>
           </form>

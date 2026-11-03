@@ -220,10 +220,11 @@ export function bulkReview(user: User, ids: string[], a: ReviewAction): number {
 }
 
 /** Distinct values for filter dropdowns, within the user's scope. */
-export function filterOptions(user: User, runId?: string) {
+/** Distinct values for the filter dropdowns, limited to the selected run or website so no other project's pages appear. */
+export function filterOptions(user: User, runId?: string, projectId?: string) {
   const scope = projectScope(user, "i.project_id");
-  const runSql = runId ? "i.run_id = ?" : `i.run_id IN (${LATEST_RUNS})`;
-  const params = [...scope.params, ...(runId ? [runId] : [])];
+  const runSql = (runId ? "i.run_id = ?" : `i.run_id IN (${LATEST_RUNS})`) + (projectId ? " AND i.project_id = ?" : "");
+  const params = [...scope.params, ...(runId ? [runId] : []), ...(projectId ? [projectId] : [])];
   const distinct = (col: string) => all<{ v: string }>(`SELECT DISTINCT ${col} AS v FROM issues i WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v);
   return {
     types: distinct("i.type"),

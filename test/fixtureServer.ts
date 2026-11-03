@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL("./fixtures/site/", import.meta.url));
 const types: Record<string, string> = { ".html": "text/html", ".xml": "application/xml", ".txt": "text/plain" };
 
 /** Serves test/fixtures/site with {{origin}} replaced. Records every requested path and method. */
-export async function startFixtureServer() {
+export async function startFixtureServer(opts: { hostname?: "127.0.0.1" | "localhost" } = {}) {
   const requests: { method: string; path: string }[] = [];
   // Flip `state.fixed` to simulate a developer fixing the overflow between two audits.
   const state = { fixed: false };
@@ -23,8 +23,8 @@ export async function startFixtureServer() {
       res.writeHead(404, { "content-type": "text/html" }).end("<!doctype html><title>Not found</title><h1>404</h1>");
     }
   });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise<void>((r) => opts.hostname === "localhost" ? server.listen(0, r) : server.listen(0, "127.0.0.1", r));
   const { port } = server.address() as { port: number };
-  const origin = `http://127.0.0.1:${port}`;
+  const origin = `http://${opts.hostname ?? "127.0.0.1"}:${port}`;
   return { origin, requests, state, close: () => new Promise<void>((r) => server.close(() => r())) };
 }

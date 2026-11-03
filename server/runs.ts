@@ -1,7 +1,8 @@
 import { all, get, run, newId, now, tx } from "./db";
 import type { User } from "./auth";
 import { assertCan, assertProjectAccess, NotFoundError, projectScope } from "./permissions";
-import { getProject, isInScope } from "./projects";
+import { getProject } from "./projects";
+import { assertUrlInProjectScope, type ScopeProject } from "./scope";
 import { assertPublicUrl, envPolicy } from "../src/security/ssrf";
 import type { Issue } from "../src/types";
 import type { SdResult } from "../src/schema/types";
@@ -55,12 +56,11 @@ const toRun = (r: RunRow): AuditRun => {
 };
 
 /** Validates and normalizes audit settings against the project's authorized scope. */
-export function normalizeSettings(projectDomain: string, s: RunSettings): RunSettings {
-  const scope = { domain: projectDomain };
-  if (!isInScope(scope, s.startUrl)) throw new Error(`That URL is outside this project's authorized domain (${projectDomain}).`);
+export function normalizeSettings(project: ScopeProject, s: RunSettings): RunSettings {
+  if (!s.startUrl?.trim()) throw new Error("Enter the website URL to audit.");
+  assertUrlInProjectScope(project, s.startUrl.trim());
   const urls = (s.urls ?? []).map((u) => u.trim()).filter(Boolean);
-  const outside = urls.filter((u) => !isInScope(scope, u));
-  if (outside.length) throw new Error(`These URLs are outside the authorized domain: ${outside.slice(0, 3).join(", ")}`);
+  for (const u of urls) assertUrlInProjectScope(project, u);
   const viewports = [...new Set((s.viewports?.length ? s.viewports : DEFAULT_VIEWPORTS).map(Number))]
     .filter((v) => Number.isInteger(v) && v >= 240 && v <= 2560).sort((a, b) => a - b);
   if (!viewports.length) throw new Error("Choose at least one viewport width between 240 and 2560px.");
@@ -73,14 +73,14 @@ export function normalizeSettings(projectDomain: string, s: RunSettings): RunSet
         gscPerformance: !!g.gscPerformance, gscSitemaps: !!g.gscSitemaps, inspectMaxUrls: Math.min(Math.max(Math.floor(g.inspectMaxUrls ?? 0), 0), 200),
       }
     : undefined;
-  return { startUrl: s.startUrl, maxPages, useSitemap: s.useSitemap ?? true, urls, viewports, categories: s.categories, delayMs, google };
+  return { startUrl: s.startUrl.trim(), maxPages, useSitemap: s.useSitemap ?? true, urls, viewports, categories: s.categories, delayMs, google };
 }
 
 /** Creates a pending run and queues its job (no network checks; see createAuditRun). */
 export function insertRun(user: User, projectId: string, settings: RunSettings): string {
   assertCan(user, "audit:start");
   const project = getProject(user, projectId);
-  const normalized = normalizeSettings(project.domain, settings);
+  const normalized = normalizeSettings(project, settings);
   const id = newId();
   const ts = now();
   tx(() => {
@@ -91,13 +91,29 @@ export function insertRun(user: User, projectId: string, settings: RunSettings):
   return id;
 }
 
-/** Full validation (permissions, scope, SSRF) then queues the audit. */
+export class ActiveAuditError extends Error {
+  constructor(public runId: string) {
+    super("An audit of this project is already queued or running. Open it to follow its progress, or cancel it before starting another.");
+  }
+}
+
+/** Full validation (permissions, project scope, SSRF, no duplicate active audit) then queues the audit. */
 export async function createAuditRun(user: User, projectId: string, settings: RunSettings): Promise<string> {
   assertCan(user, "audit:start");
-  const project = getProject(user, projectId);
-  normalizeSettings(project.domain, settings);
-  await assertPublicUrl(settings.startUrl, envPolicy());
+  const project = getProject(user, projectId); // read from the database and access-checked; the form is never trusted
+  normalizeSettings(project, settings);
+  const active = get<{ id: string }>("SELECT id FROM audit_runs WHERE project_id = ? AND status IN ('pending','running') ORDER BY created_at LIMIT 1", projectId);
+  if (active) throw new ActiveAuditError(active.id);
+  await assertPublicUrl(settings.startUrl.trim(), envPolicy());
   return insertRun(user, projectId, settings);
+}
+
+/** Number of audits that will run before this pending one (0 = next). */
+export function queuePosition(runId: string): number {
+  const job = get<{ created_at: string }>("SELECT created_at FROM jobs WHERE ref_id = ? AND type = 'audit' AND status = 'pending'", runId);
+  if (!job) return 0;
+  return get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM jobs WHERE type = 'audit' AND (status = 'running' OR (status = 'pending' AND created_at < ?))", job.created_at)!.n;
 }
 
 export function getRun(user: User, id: string): AuditRun {
@@ -142,7 +158,7 @@ export function claimNextJob(type: Job["type"]): Job | undefined {
   return tx(() => {
     const job = get<Job>("SELECT id, type, ref_id FROM jobs WHERE type = ? AND status = 'pending' ORDER BY created_at LIMIT 1", type);
     if (!job) return undefined;
-    run("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?", now(), job.id);
+    run("UPDATE jobs SET status = 'running', started_at = ?, attempts = attempts + 1 WHERE id = ?", now(), job.id);
     if (type === "audit") run("UPDATE audit_runs SET status = 'running', started_at = ?, heartbeat_at = ?, phase = 'starting' WHERE id = ?", now(), now(), job.ref_id);
     return job;
   });
@@ -173,16 +189,39 @@ export function finishRun(runId: string, status: "completed" | "failed" | "cance
     status, now(), error ?? null, status, summary ? JSON.stringify(summary) : null, runId);
 }
 
-/** Runs left "running" by a worker that died are marked failed so they never look stuck. */
-export function failOrphanedRuns(): number {
-  const orphans = all<{ id: string }>("SELECT id FROM audit_runs WHERE status = 'running'");
+const MAX_ATTEMPTS = 3;
+
+/**
+ * Called when the (single) worker starts. Audits left "running" by a worker that died are requeued and restart
+ * from scratch (findings are only imported at the end, so nothing is duplicated). After repeated interruptions
+ * they are marked failed instead of looping forever. Pending cancel requests are honoured.
+ */
+export function recoverOrphanedRuns(): { requeued: number; failed: number } {
+  let requeued = 0, failed = 0;
+  const orphans = all<{ id: string; cancel_requested: number; attempts: number | null; job_id: string | null }>(
+    `SELECT r.id, r.cancel_requested, j.attempts, j.id AS job_id FROM audit_runs r LEFT JOIN jobs j ON j.ref_id = r.id AND j.type = 'audit'
+     WHERE r.status = 'running'`);
   for (const o of orphans) {
-    finishRun(o.id, "failed", "The worker stopped before this audit finished (interrupted). Start a new audit to retry.");
-    run("UPDATE jobs SET status = 'failed', finished_at = ?, error = 'interrupted' WHERE ref_id = ? AND status = 'running'", now(), o.id);
+    if (o.cancel_requested) {
+      finishRun(o.id, "cancelled", "Cancelled by a user (the worker stopped before it finished cancelling).");
+      run("UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE id = ?", now(), o.job_id);
+    } else if (o.job_id && (o.attempts ?? MAX_ATTEMPTS) < MAX_ATTEMPTS) {
+      tx(() => {
+        run(`UPDATE audit_runs SET status = 'pending', phase = 'requeued', started_at = NULL, heartbeat_at = NULL, pages_total = 0, pages_done = 0,
+             pages_failed = 0, pages_skipped = 0, findings_raw = 0, current_url = NULL, current_viewport = NULL, error = ? WHERE id = ?`,
+          `The worker stopped during this audit; it was requeued automatically (attempt ${(o.attempts ?? 0) + 1} of ${MAX_ATTEMPTS}).`, o.id);
+        run("UPDATE jobs SET status = 'pending', started_at = NULL WHERE id = ?", o.job_id);
+      });
+      requeued++;
+    } else {
+      finishRun(o.id, "failed", "The worker was interrupted repeatedly while running this audit. Check the worker logs, then start a new audit.");
+      if (o.job_id) run("UPDATE jobs SET status = 'failed', finished_at = ?, error = 'interrupted' WHERE id = ?", now(), o.job_id);
+      failed++;
+    }
   }
   run("UPDATE jobs SET status = 'pending', started_at = NULL WHERE type = 'export' AND status = 'running'");
   run("UPDATE google_tasks SET status = 'pending', started_at = NULL WHERE status = 'running'");
-  return orphans.length;
+  return { requeued, failed };
 }
 
 /** Stores the engine's grouped findings. Earlier false-positive decisions on the same fingerprint carry over. */

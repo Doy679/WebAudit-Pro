@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { orNotFound, requireUser } from "@/app/lib/session";
-import { getRun, listRuns, runPages } from "@/server/runs";
+import { getRun, listRuns, queuePosition, runPages } from "@/server/runs";
+import { workerStatus } from "@/server/worker-status";
 import { getProject } from "@/server/projects";
 import { listIssues } from "@/server/issues";
 import { qualityScore } from "@/server/score";
@@ -57,6 +58,8 @@ export default async function AuditPage({ params }: { params: Promise<{ id: stri
           pagesTotal: r.pages_total, pagesDone: r.pages_done, pagesFailed: r.pages_failed, pagesSkipped: r.pages_skipped,
           currentUrl: r.current_url, currentViewport: r.current_viewport, findingsRaw: r.findings_raw, findings: r.findings,
           createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, heartbeatAt: r.heartbeat_at,
+          projectName: project.name, queuePosition: r.status === "pending" ? queuePosition(r.id) : null,
+          worker: (() => { const w = workerStatus(); return { state: w.state, label: w.label, detail: w.detail, currentRun: w.currentRun }; })(),
         }}
       />
 

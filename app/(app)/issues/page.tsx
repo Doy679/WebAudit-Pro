@@ -25,7 +25,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
     sort: (sp.sort as IssueFilters["sort"]) ?? "severity", page: sp.page ? Number(sp.page) : 1, pageSize: sp.size ? Number(sp.size) : 50,
   };
   const { rows, total, page, pageSize } = listIssues(user, filters);
-  const opts = filterOptions(user, sp.run);
+  const opts = filterOptions(user, sp.run, sp.project);
   const projects = listProjects(user);
   const runs = listRuns(user, { projectId: sp.project, status: "completed", limit: 50 });
   const scope = projectScope(user, "m.project_id");

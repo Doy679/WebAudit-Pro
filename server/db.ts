@@ -159,6 +159,8 @@ function migrate(db: DB) {
   if (!issueCols.has("provider_ts")) db.exec("ALTER TABLE issues ADD COLUMN provider_ts TEXT");
   if (!issueCols.has("metric_key")) db.exec("ALTER TABLE issues ADD COLUMN metric_key TEXT");
   if (!issueCols.has("related_json")) db.exec("ALTER TABLE issues ADD COLUMN related_json TEXT NOT NULL DEFAULT '[]'");
+  // How many times an audit job was started; interrupted audits are requeued a limited number of times.
+  if (!cols("jobs").has("attempts")) db.exec("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
 }
 
 const globalForDb = globalThis as unknown as { __webauditDb?: { path: string; db: DB } };

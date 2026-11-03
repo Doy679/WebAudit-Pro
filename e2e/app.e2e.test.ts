@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import ExcelJS from "exceljs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { startFixtureServer } from "../test/fixtureServer";
+const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 
 const PORT = 3100;
 const APP = `http://127.0.0.1:${PORT}`;
@@ -15,9 +16,13 @@ const ADMIN = { name: "E2E Admin", email: "admin@e2e.test", password: "correct h
 const QA = { name: "Outside QA", email: "qa@e2e.test", password: "another long password" };
 
 let site: Awaited<ReturnType<typeof startFixtureServer>>;
+let site2: Awaited<ReturnType<typeof startFixtureServer>>; // second project on another host
 let dataDir: string;
 const procs: ChildProcess[] = [];
 let browser: Browser;
+let workerProc: ChildProcess;
+const db = () => new DatabaseSync(join(dataDir, "webaudit.db"), { readOnly: true });
+const q = <T,>(sql: string, ...p: (string | number)[]) => { const d = db(); try { return d.prepare(sql).all(...p) as T[]; } finally { d.close(); } };
 let admin: BrowserContext;
 let page: Page;
 
@@ -31,7 +36,7 @@ let xlsxHref = "";
 let approvalLink = "";
 
 function startProc(args: string[]) {
-  const env: NodeJS.ProcessEnv = { ...process.env, WEBAUDIT_DATA_DIR: dataDir, WEBAUDIT_TEST_ALLOW_LOOPBACK: "1", WEBAUDIT_APP_URL: APP, PORT: String(PORT), NODE_ENV: "production" };
+  const env: NodeJS.ProcessEnv = { ...process.env, WEBAUDIT_DATA_DIR: dataDir, WEBAUDIT_TEST_ALLOW_LOOPBACK: "1", WEBAUDIT_APP_URL: APP, PORT: String(PORT), NODE_ENV: "production", WEBAUDIT_WORKER_STALE_MS: "4000" };
   const p = spawn(process.execPath, args, { env, stdio: ["ignore", "pipe", "pipe"] });
   p.stdout.on("data", (d: Buffer) => process.env.E2E_VERBOSE && process.stdout.write(d));
   p.stderr.on("data", (d: Buffer) => process.env.E2E_VERBOSE && process.stderr.write(d));
@@ -76,9 +81,10 @@ async function waitForRun(id: string, statuses = ["completed"]) {
 beforeAll(async () => {
   if (process.env.E2E_SCREENSHOTS) mkdirSync("test-results", { recursive: true });
   site = await startFixtureServer();
+  site2 = await startFixtureServer({ hostname: "localhost" });
   dataDir = mkdtempSync(join(tmpdir(), "webaudit-e2e-"));
   startProc([resolve("node_modules/next/dist/bin/next"), "start", "-p", String(PORT), "-H", "127.0.0.1"]);
-  startProc([resolve("node_modules/tsx/dist/cli.mjs"), "worker/worker.ts"]);
+  workerProc = startProc([resolve("node_modules/tsx/dist/cli.mjs"), "worker/worker.ts"]);
   await waitForApp();
   browser = await chromium.launch({ channel: "msedge" });
   admin = await browser.newContext({ acceptDownloads: true });
@@ -93,6 +99,7 @@ afterAll(async () => {
     } else p.kill();
   }
   await site?.close();
+  await site2?.close();
   rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 });
 
@@ -338,6 +345,119 @@ describe("WebAudit Pro end to end", () => {
     await page.goto(`${APP}/audits/new?project=${projectId}`);
     expect(await page.locator("input[name=psiMobile]").isDisabled()).toBe(true);
     expect(await page.locator("input[name=gscPerformance]").isDisabled()).toBe(true);
+  });
+
+  describe("bug fixes: project selection and worker reliability", () => {
+    let redRiverId = "";
+
+    it("Bug Test 1: switching project updates URL, authorized domain and defaults, and survives reload", async () => {
+      await page.goto(`${APP}/projects/new`);
+      await page.getByLabel("Project name").fill("Red River Fixture");
+      await page.getByLabel("Website address").fill(site2.origin);
+      await page.getByLabel("Authorization").fill("Second local fixture site");
+      await page.getByRole("checkbox").check();
+      await page.getByRole("button", { name: "Add website" }).click();
+      await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/);
+      redRiverId = page.url().split("/").pop()!;
+      await page.getByLabel("Default max pages").fill("7");
+      await page.getByRole("button", { name: "Save settings" }).click();
+      await page.getByText("Project settings saved.").waitFor();
+
+      await page.goto(`${APP}/audits/new?project=${projectId}`);
+      expect(await page.getByLabel("Website URL").inputValue()).toBe(`${site.origin}/`);
+      expect(await page.getByTestId("authorized-domain").innerText()).toBe("127.0.0.1");
+      expect(await page.getByLabel("Maximum pages").inputValue()).toBe("20");
+
+      await page.getByLabel("Project", { exact: true }).selectOption(redRiverId);
+      expect(await page.getByLabel("Website URL").inputValue()).toBe(`${site2.origin}/`);
+      expect(await page.getByTestId("authorized-domain").innerText()).toBe("localhost");
+      expect(await page.getByTestId("url-scope-message").innerText()).toContain("Must be on localhost");
+      expect(await page.getByLabel("Maximum pages").inputValue()).toBe("7");
+      await page.waitForURL(new RegExp(`project=${redRiverId}`));
+      await page.reload();
+      expect(await page.getByLabel("Project", { exact: true }).inputValue()).toBe(redRiverId);
+      expect(await page.getByLabel("Website URL").inputValue()).toBe(`${site2.origin}/`);
+    });
+
+    it("Bug Test 3: a URL from another project is flagged in the browser and rejected by the server", async () => {
+      await page.goto(`${APP}/audits/new?project=${redRiverId}`);
+      await page.getByLabel("Website URL").fill(`${site.origin}/`);
+      expect(await page.getByTestId("url-scope-message").innerText()).toBe("This URL belongs to 127.0.0.1, not localhost. Correct the URL or select the matching project.");
+      expect(await page.getByTestId("start-audit").isDisabled()).toBe(true);
+
+      const before = q<{ n: number }>("SELECT (SELECT COUNT(*) FROM audit_runs) + (SELECT COUNT(*) FROM jobs) AS n")[0].n;
+      // Bypass the browser check entirely: the server must still refuse.
+      await page.getByTestId("start-audit").evaluate((b) => { (b as HTMLButtonElement).disabled = false; (b as HTMLButtonElement).form!.requestSubmit(b as HTMLButtonElement); });
+      await page.getByText("You selected Red River Fixture, but the entered URL belongs to 127.0.0.1. Correct the URL or select the matching project.").waitFor();
+      expect(q<{ n: number }>("SELECT (SELECT COUNT(*) FROM audit_runs) + (SELECT COUNT(*) FROM jobs) AS n")[0].n).toBe(before);
+    });
+
+    it("Bug Test 2: Start Audit saves the selected project, its URL and settings, and the progress page names it", async () => {
+      await page.goto(`${APP}/audits/new?project=${projectId}`);
+      await page.getByLabel("Project", { exact: true }).selectOption(redRiverId);
+      for (const vw of ["320px", "768px", "1024px"]) await page.getByLabel(vw, { exact: true }).uncheck();
+      await page.getByLabel("Scan rate: delay between page loads (ms)").fill("500");
+      await page.getByTestId("start-audit").click();
+      await page.waitForURL(/\/audits\/[0-9a-f-]{36}$/);
+      const id = page.url().split("/").pop()!;
+      expect(await page.getByTestId("progress-project").innerText()).toBe("Red River Fixture");
+      const [r] = q<{ project_id: string; start_url: string; settings_json: string }>("SELECT project_id, start_url, settings_json FROM audit_runs WHERE id = ?", id);
+      expect(r.project_id).toBe(redRiverId);
+      expect(r.start_url).toBe(`${site2.origin}/`);
+      expect(JSON.parse(r.settings_json)).toMatchObject({ maxPages: 7, viewports: [390, 1440], delayMs: 500 });
+      await waitForRun(id);
+      expect(await page.getByRole("heading", { level: 1 }).innerText()).toBe("Audit: Red River Fixture");
+    });
+
+    it("Bug Test 8: findings, evidence and exports stay with their own project", async () => {
+      const crossed = q<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM issues i JOIN projects p ON p.id = i.project_id
+         WHERE (p.id = ? AND i.url NOT LIKE ?) OR (p.id = ? AND i.url NOT LIKE ?)`, projectId, `${site.origin}%`, redRiverId, `${site2.origin}%`)[0].n;
+      expect(crossed).toBe(0);
+      const mismatchedRuns = q<{ n: number }>("SELECT COUNT(*) AS n FROM issues i JOIN audit_runs r ON r.id = i.run_id WHERE r.project_id != i.project_id")[0].n;
+      expect(mismatchedRuns).toBe(0);
+      await page.goto(`${APP}/issues?project=${projectId}`);
+      expect(await page.locator(`text=${site2.origin.replace("http://", "")}`).count()).toBe(0);
+
+      const rrRun = q<{ id: string }>("SELECT id FROM audit_runs WHERE project_id = ? AND status = 'completed'", redRiverId)[0].id;
+      await page.goto(`${APP}/reports?run=${rrRun}`);
+      await page.getByRole("button", { name: "Generate JSON" }).click();
+      await page.getByText("Report queued").waitFor();
+      const link = page.locator("[data-testid=download-json]").first();
+      await link.waitFor({ timeout: 60_000 });
+      const json = await (await page.request.get(`${APP}${await link.getAttribute("href")}`)).json();
+      expect(json.project.name).toBe("Red River Fixture");
+      expect(json.issues.every((i: { url: string }) => i.url.startsWith(site2.origin))).toBe(true);
+    });
+
+    it("Bug Tests 6–7: with the worker stopped the UI says so; a retry can't duplicate; restarting runs the queued audit", async () => {
+      // Stop the worker.
+      if (workerProc.pid) execSync(`taskkill /pid ${workerProc.pid} /T /F`, { stdio: "ignore" });
+      await expect.poll(async () => {
+        await page.goto(`${APP}/audits/new?project=${projectId}`);
+        return page.getByTestId("worker-status").getAttribute("data-state");
+      }, { timeout: 20_000, interval: 1000 }).toMatch(/stale|offline/);
+      expect(await page.getByTestId("nav-worker").getAttribute("data-state")).toMatch(/stale|offline/);
+
+      for (const vw of ["320px", "768px", "1024px"]) await page.getByLabel(vw, { exact: true }).uncheck();
+      await page.getByTestId("start-audit").click();
+      await page.waitForURL(/\/audits\/[0-9a-f-]{36}$/);
+      const id = page.url().split("/").pop()!;
+      expect(await page.locator("[data-testid=run-progress]").getAttribute("data-status")).toBe("pending");
+      expect(await page.getByTestId("progress-message").innerText()).toBe("Queued, but the audit worker isn't running.");
+      expect(await page.getByTestId("worker-warning").isVisible()).toBe(true);
+
+      // Retrying must not queue a duplicate audit of the same project.
+      await page.goto(`${APP}/audits/new?project=${projectId}`);
+      await page.getByTestId("start-audit").click();
+      await page.getByText("An audit of this project is already queued or running").waitFor();
+      expect(q<{ n: number }>("SELECT COUNT(*) AS n FROM audit_runs WHERE project_id = ? AND status = 'pending'", projectId)[0].n).toBe(1);
+
+      // Restart the worker: the queued audit is picked up and completes.
+      workerProc = startProc([resolve("node_modules/tsx/dist/cli.mjs"), "worker/worker.ts"]);
+      await waitForRun(id);
+      expect(await page.getByTestId("nav-worker").getAttribute("data-state")).toBe("online");
+    });
   });
 
   it("Test 14: the audited website only ever received read-only requests", () => {

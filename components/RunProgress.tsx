@@ -21,6 +21,9 @@ export interface ProgressData {
   startedAt: string | null;
   finishedAt: string | null;
   heartbeatAt: string | null;
+  projectName?: string | null;
+  worker?: { state: string; label: string; detail: string; currentRun: string | null };
+  queuePosition?: number | null;
 }
 
 const PHASES: Record<string, string> = {
@@ -69,15 +72,23 @@ export function RunProgress({ runId, initial }: { runId: string; initial: Progre
   }, [data.status, router]);
 
   const pct = data.status === "completed" ? 100 : data.pagesTotal ? Math.min(99, Math.round((data.pagesDone / data.pagesTotal) * 100)) : 0;
-  const stale = data.status === "running" && data.heartbeatAt && Date.now() - Date.parse(data.heartbeatAt) > 120_000;
+  const workerDown = !!data.worker && ["offline", "stale"].includes(data.worker.state);
+  // Never present an audit as running when no worker is processing it.
+  const quietFor = data.heartbeatAt ? Date.now() - Date.parse(data.heartbeatAt) : Infinity;
+  const notOurs = data.worker?.state === "online" && data.worker.currentRun !== runId && quietFor > 30_000;
+  const stalled = data.status === "running" && (workerDown || notOurs || data.worker?.state === "unhealthy");
+  const waiting = data.status === "pending"
+    ? workerDown ? "Queued, but the audit worker isn't running." : data.queuePosition ? `Queued: ${data.queuePosition} audit${data.queuePosition === 1 ? "" : "s"} ahead of this one.` : "Next in line: starting shortly…"
+    : null;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4" data-testid="run-progress" data-status={data.status}>
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-testid="run-progress" data-status={data.status} data-worker={data.worker?.state ?? ""}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <StatusPill status={data.status} />
-          <span className="text-sm text-slate-700">
-            {data.status === "pending" ? "Waiting for the audit worker…" : ACTIVE.has(data.status) ? PHASES[data.phase ?? ""] ?? data.phase : null}
+          {stalled ? <StatusPill status="failed" label="Stalled" /> : <StatusPill status={data.status} />}
+          {data.projectName && <span className="text-sm font-medium text-navy-900" data-testid="progress-project">{data.projectName}</span>}
+          <span className="text-sm text-slate-700" data-testid="progress-message">
+            {waiting ?? (stalled ? "Not progressing: the worker isn't processing this audit." : ACTIVE.has(data.status) ? PHASES[data.phase ?? ""] ?? data.phase : null)}
             {data.cancelRequested && ACTIVE.has(data.status) && " · cancelling after the current page"}
           </span>
         </div>
@@ -109,7 +120,11 @@ export function RunProgress({ runId, initial }: { runId: string; initial: Progre
       )}
       {data.error && <p className="mt-3 rounded bg-sev-high-bg px-3 py-2 text-sm text-sev-high">{data.error}</p>}
       {offline && <p className="mt-3 text-xs text-sev-med">Connection lost. Retrying; the audit keeps running on the server.</p>}
-      {stale && <p className="mt-3 text-xs text-sev-med">No update from the worker for over 2 minutes. Check that the worker process is running.</p>}
+      {ACTIVE.has(data.status) && data.worker && data.worker.state !== "online" && (
+        <p className="mt-3 rounded bg-sev-med-bg px-3 py-2 text-sm text-sev-med" data-testid="worker-warning">
+          <strong>{data.worker.label}.</strong> {data.worker.detail} This audit keeps its place and continues automatically once the worker is running (an interrupted audit restarts from the beginning).
+        </p>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
+import { assertUrlInProjectScope, scopePredicate, type ScopeProject } from "../server/scope";
 import { join, resolve } from "node:path";
 import { get } from "../server/db";
 import { runsDir, dataDir } from "../server/db";
@@ -42,14 +43,20 @@ export async function tokensFor(projectSettingsJson: string, settings: RunSettin
 }
 
 export async function processAudit(runId: string, log: (m: string) => void): Promise<"completed" | "failed" | "cancelled"> {
-  const row = get<{ settings_json: string; project_settings: string }>(
-    "SELECT r.settings_json, p.settings_json AS project_settings FROM audit_runs r JOIN projects p ON p.id = r.project_id WHERE r.id = ?", runId);
+  const row = get<{ settings_json: string; project_settings: string; name: string; domain: string }>(
+    "SELECT r.settings_json, p.settings_json AS project_settings, p.name, p.domain FROM audit_runs r JOIN projects p ON p.id = r.project_id WHERE r.id = ?", runId);
   if (!row) return "failed";
   const settings = JSON.parse(row.settings_json) as RunSettings;
+  const project: ScopeProject = { name: row.name, domain: row.domain };
   const runDir = join(runsDir(), runId);
   setRunDir(runId, runDir);
+  // A requeued attempt starts clean, so evidence from an interrupted attempt can't mix with this one.
+  await rm(runDir, { recursive: true, force: true });
 
   try {
+    // Defence in depth: the worker re-checks the stored URLs against the project's domain before any request.
+    assertUrlInProjectScope(project, settings.startUrl);
+    for (const u of settings.urls ?? []) assertUrlInProjectScope(project, u);
     if ((await dirSize(dataDir())) > MAX_STORAGE_BYTES) {
       throw new Error(`Storage quota reached (${process.env.WEBAUDIT_MAX_STORAGE_GB ?? 20} GB in ${dataDir()}). Delete old runs or raise WEBAUDIT_MAX_STORAGE_GB.`);
     }
@@ -76,6 +83,7 @@ export async function processAudit(runId: string, log: (m: string) => void): Pro
       tokens,
       categories: settings.categories?.length ? settings.categories : undefined,
       policy: envPolicy(),
+      inScope: scopePredicate(project),
       log,
       onProgress,
       shouldCancel: () => isCancelRequested(runId),

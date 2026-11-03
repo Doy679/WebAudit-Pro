@@ -59,6 +59,19 @@ Last verified: 2026-11-03. 125 unit/integration tests and 11 end-to-end tests pa
   - **Acceptance:** private expiring, revocable links; the client approves, rejects, requests revision and comments, with name, email, time, IP and user agent stored. Re-audit classifies New / Still present / Resolved / Reopened / Changed / Unable to verify, with before/after values and screenshots. Neither approval nor re-audit touches the website (E2E Test 14: the fixture site only ever received GET/HEAD).
   - **Limitations:** links are shared manually (no email sending). Rate limiting of client submissions is in-memory per process.
 
+## Bug fixes (2026-11-03): wrong project audited, audits stuck "pending"
+
+- [x] Selecting a project on New Audit loads its URL, authorized domain and saved defaults (one synchronized form; selection kept in `?project=`).
+- [x] Start Audit uses the selected project ID and URL; the server re-reads the project and rejects a URL from another domain with a message naming both. No audit or job is created on rejection.
+- [x] Central scope check (`server/scope.ts`): exact host match (www ignored), no substring matching, subdomains only if explicitly allowed. Enforced on the server, in the worker (stored URLs re-checked) and in the engine (discovered links, internal links and redirects that leave the domain are not audited).
+- [x] Worker heartbeat every 5 s with Online / Starting / No recent heartbeat / Offline / Unhealthy states, shown in the sidebar, on New Audit and on the progress page; single worker instance.
+- [x] Pending audits show their queue position; if the worker is down the page says so instead of implying progress; one active audit per project (no duplicates from retries).
+- [x] Interrupted audits are requeued (max 3 attempts) and restart cleanly; cancellation honoured; heartbeat updated during link checking.
+- [x] Issue filter dropdowns limited to the selected website (found while testing isolation).
+- **Tests:** `test/scope-worker.test.ts` (12), `test/worker.integration.test.ts` (5, real worker process), E2E bug tests 1, 2, 3, 6–7, 8. Full results: 201 unit/integration and 17 E2E tests passing (E2E run twice in a row).
+- **Root causes:** (1) the project dropdown was in a separate form that only applied on "Load defaults"; the Start Audit form carried a hidden project ID fixed at page load. (2) The worker was running but processes one audit at a time (about 17 minutes per CHM audit); the page said "Waiting for the audit worker…" with no worker status or queue position, and the link-check phase didn't refresh the heartbeat, so the queue of retries looked stuck.
+- **Data:** no records were deleted. Three CHM audits created by bug 1 (07:27, 07:29 and 07:33 UTC) were cancelled at the user's request; one had already loaded a single page.
+
 ## Google SEO & Performance suite (added 2026-11-03)
 
 The eight MVP milestones above are unchanged and re-verified: 183 unit/integration tests and 12 end-to-end tests pass after the Google work.

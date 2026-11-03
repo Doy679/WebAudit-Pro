@@ -26,6 +26,14 @@ npm run create-admin -- --email you@agency.com --name "Your Name" --password "at
 
 Production-style run: `npm run build` then `npm start` (also starts the worker).
 
+### The audit worker
+Audits, reports and Google requests run in a separate **worker** process; the web app only queues them.
+- `npm run dev` and `npm start` start **both** the web app and the worker. `npm run web` starts only the web app; then run `npm run worker` in a second terminal.
+- The sidebar shows the worker state on every page: **Worker online**, **Worker starting**, **No recent heartbeat** (stopped or crashed), **Worker offline** (never started) or **Worker unhealthy** (alive but the current audit stopped progressing). The worker writes a heartbeat every 5 seconds.
+- One audit runs at a time. Queued audits show their position ("Queued: 2 audits ahead"). Only one active audit per project is allowed, so retries can't create duplicates.
+- Only one worker can run against a database; a second one exits with a message.
+- If the worker stops mid-audit, that audit is requeued automatically when the worker starts again and restarts from the beginning (up to 3 attempts). Findings are only saved when an audit finishes, so nothing is duplicated.
+
 ## Typical workflow
 1. **My Websites → Add website**: name, address, and the authorization you hold (recorded with your name and time).
 2. **New Audit**: confirm the URL, choose pages, viewports, categories and scan rate, then **Start Audit**.

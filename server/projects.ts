@@ -31,7 +31,8 @@ const toProject = (r: ProjectRow): Project => {
   return { ...rest, settings: JSON.parse(settings_json) };
 };
 
-export const bareHost = (hostname: string) => hostname.toLowerCase().replace(/^www\./, "");
+export { bareHost } from "./scope";
+import { bareHost, urlInProjectScope } from "./scope";
 
 export function parseSiteUrl(raw: string): URL {
   let url: URL;
@@ -47,13 +48,7 @@ export function parseSiteUrl(raw: string): URL {
 }
 
 /** True when the URL is on the project's domain (with or without www). Subdomains are a separate scope. */
-export const isInScope = (project: Pick<Project, "domain">, url: string) => {
-  try {
-    return bareHost(new URL(url).hostname) === project.domain;
-  } catch {
-    return false;
-  }
-};
+export const isInScope = (project: Pick<Project, "domain">, url: string) => urlInProjectScope(project, url);
 
 export function createProject(
   user: User,

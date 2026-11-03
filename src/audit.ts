@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type { Issue, PageSnapshot, RawIssue, Tokens } from "./types.js";
 import { discover } from "./discover/discover.js";
 import { isAllowed } from "./discover/robots.js";
-import { normalizeUrl } from "./discover/normalize.js";
+import { isSameSite, normalizeUrl } from "./discover/normalize.js";
 import { Capturer, saveSnapshot } from "./capture/capture.js";
 import { buildBaseline } from "./baseline/spacing.js";
 import { layoutChecks } from "./checks/layout.js";
@@ -52,6 +52,8 @@ export interface AuditOptions {
   /** Rule groups to run; default all. */
   categories?: string[];
   policy?: SsrfPolicy;
+  /** Project scope. URLs outside it are never scanned; pages that redirect outside it are reported as failed. Default: the start URL's site. */
+  inScope?: (url: string) => boolean;
   log?: (msg: string) => void;
   onProgress?: (p: AuditProgress) => void | Promise<void>;
   shouldCancel?: () => boolean | Promise<boolean>;
@@ -117,6 +119,8 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
   };
 
   await assertPublicUrl(opts.startUrl, policy);
+  const inScope = opts.inScope ?? ((u: string) => isSameSite(u, opts.startUrl));
+  if (!inScope(opts.startUrl)) throw new Error(`The start URL ${opts.startUrl} is outside the project's authorized domain.`);
   log(`Discovering pages for ${opts.startUrl}…`);
   await report();
   const found = await discover({
@@ -126,6 +130,8 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
     userAgent: tokens.crawl.userAgent,
     policy,
   });
+  for (const u of found.pages.filter((p) => !inScope(p))) found.skipped.push({ url: u, reason: "outside the project's authorized domain" });
+  found.pages = found.pages.filter(inScope);
   log(`${found.pages.length} page(s) to scan, ${found.skipped.length} skipped, sitemap ${found.sitemapUrls ? "found" : "not found"}.`);
   await report({ phase: "scanning", pagesTotal: found.pages.length, pagesSkipped: found.skipped.length });
 
@@ -145,6 +151,13 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
         log(`[${n + 1}/${found.pages.length}] ${url} @ ${vw}px`);
         await report({ currentUrl: url, currentViewport: vw });
         const cap = await capturer.capture(url, vw, slug, on("a11y") && tokens.a11yViewports.includes(vw), on("structured-data") && vw === widest);
+        if (isOk(cap.snapshot) && !inScope(cap.snapshot.meta.finalUrl)) {
+          // Redirected to another domain: never audit it as if it belonged to this project.
+          cap.error = `Redirected outside the project's authorized domain (to ${cap.snapshot.meta.finalUrl}); page not audited.`;
+          cap.snapshot = { ...cap.snapshot, meta: { ...cap.snapshot.meta, status: 0 }, elements: [] };
+          cap.axe = undefined;
+          cap.structured = undefined;
+        }
         if (cap.structured) {
           const result = validateStructuredData(cap.structured);
           structured.push({ url, result });
@@ -176,12 +189,12 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
     for (const s of snapshots.filter((s) => isOk(s) && s.viewport === Math.max(...tokens.viewports))) {
       for (const l of s.meta.links ?? []) {
         const u = normalizeUrl(l);
-        if (!u || scanned.has(u) || !isAllowed(found.robots, u)) continue;
+        if (!u || scanned.has(u) || !inScope(u) || !isAllowed(found.robots, u)) continue;
         sources.set(u, [...new Set([...(sources.get(u) ?? []), s.url])]);
       }
     }
     const toCheck = [...sources.keys()].slice(0, tokens.crawl.maxLinkChecks ?? 100);
-    linkResults = await checkLinks(toCheck, tokens, policy, checkCancel);
+    linkResults = await checkLinks(toCheck, tokens, policy, checkCancel, (url, n) => report({ currentUrl: `${url} (link ${n}/${toCheck.length})`, currentViewport: undefined }));
     log(`Checked ${linkResults.length} internal link(s).`);
   }
 
@@ -243,12 +256,13 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
   return { runDir, issues, structured, summary: { pages, skipped: found.skipped, linksChecked: linkResults.length } };
 }
 
-async function checkLinks(urls: string[], tokens: Tokens, policy: SsrfPolicy, checkCancel: () => Promise<void>): Promise<LinkResult[]> {
+async function checkLinks(urls: string[], tokens: Tokens, policy: SsrfPolicy, checkCancel: () => Promise<void>, onLink?: (url: string, n: number) => Promise<void>): Promise<LinkResult[]> {
   const results: LinkResult[] = [];
   const headers = { "user-agent": tokens.crawl.userAgent };
   const delay = Math.max(0, Math.round(tokens.crawl.delayMs / 2));
-  for (const url of urls) {
+  for (const [n, url] of urls.entries()) {
     await checkCancel();
+    await onLink?.(url, n + 1);
     try {
       let res = await guardedFetch(url, { method: "HEAD", headers, timeoutMs: 10_000 }, policy);
       if (res.status === 405 || res.status === 501) {

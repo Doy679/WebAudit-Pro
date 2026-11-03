@@ -94,7 +94,7 @@ describe("projects and audit scope", () => {
   });
 
   it("only allows audit URLs on the project's domain", async () => {
-    await expect(runs.createAuditRun(admin, projectId, { startUrl: "https://moveuptherankings.com/" })).rejects.toThrow(/outside/);
+    await expect(runs.createAuditRun(admin, projectId, { startUrl: "https://moveuptherankings.com/" })).rejects.toThrow("You selected Capital Home Mortgage, but the entered URL belongs to moveuptherankings.com");
     await expect(runs.createAuditRun(dev, projectId, { startUrl: "https://capitalhomemortgage.com/" })).rejects.toThrow(perms.ForbiddenError);
   });
 
@@ -154,6 +154,14 @@ describe("issue review", () => {
   it("stops developers from changing review decisions", () => {
     const id = issues.listIssues(admin, {}).rows[0].id;
     expect(() => issues.reviewIssue(dev, id, { action: "approve" })).toThrow(perms.ForbiddenError);
+  });
+
+  it("limits filter dropdown values to the selected website", () => {
+    const other = projects.createProject(admin, { name: "Red River", baseUrl: "https://redrivermodularhomes.com", authorizationConfirmed: true, authorizationNote: "client" });
+    const rr = runs.insertRun(admin, other.id, { startUrl: "https://redrivermodularhomes.com/" });
+    runs.importResults(rr, [fakeIssue("LAY-0100", { location: { url: "https://redrivermodularhomes.com/plans/", pages: ["https://redrivermodularhomes.com/plans/"], viewports: [390], selector: ".x" } })], []);
+    expect(issues.filterOptions(admin, undefined, projectId).pages.some((u) => u.includes("redrivermodularhomes"))).toBe(false);
+    expect(issues.filterOptions(admin, undefined, other.id).pages).toEqual(["https://redrivermodularhomes.com/plans/"]);
   });
 
   it("hides other projects' issues from non-members", () => {
