@@ -63,7 +63,7 @@
       ...extra,
     };
     const text = (el.innerText || el.value || "").replace(/\s+/g, " ").trim();
-    if (text) out.text = text.slice(0, 120);
+    if (text) out.text = text.slice(0, 200);
     if (elementorEl) out.elementorId = elementorEl.getAttribute("data-id");
     if (shared) out.sharedTemplate = true;
     if (role !== "section" && role !== "other") out.scroll = { sw: el.scrollWidth, cw: el.clientWidth, sh: el.scrollHeight, ch: el.clientHeight };
@@ -71,6 +71,7 @@
   }
 
   const elements = [];
+  const collected = []; // DOM node for each entry in `elements` (same index)
   const seen = new Set();
   const push = (el, role, limit, extra) => {
     if (seen.has(el)) return;
@@ -79,6 +80,7 @@
     if (limit !== undefined && elements.filter((e) => e.role === role).length >= limit) return;
     seen.add(el);
     elements.push(describe(el, role, cs, extra));
+    collected.push(el);
   };
 
   // Sections: top-level layout blocks only (nested Elementor containers would double count).
@@ -96,6 +98,9 @@
     const lh = cs.lineHeight === "normal" ? parseFloat(cs.fontSize) * 1.2 : parseFloat(cs.lineHeight);
     const extra = { lineCount: lineCount(el, lh || 16) };
     if (el.tagName === "A") extra.href = el.getAttribute("href") ?? "";
+    if (["aria-haspopup", "aria-expanded", "aria-controls"].some((a) => el.hasAttribute(a)) || /has-submenu|sub-arrow|toggle/i.test(el.className)) {
+      extra.toggle = true;
+    }
     push(el, "button", MAX.button, extra);
   });
 
@@ -109,6 +114,55 @@
   document.querySelectorAll("p, li, td, label, figcaption, blockquote, dd").forEach((el) => {
     if ([...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) push(el, "text", MAX.text);
   });
+
+  // Broken images: finished loading but no pixels. Often 0×0, so collected without the visibility filter.
+  let brokenCount = 0;
+  for (const img of document.querySelectorAll("img")) {
+    const src = img.currentSrc || img.getAttribute("src") || "";
+    if (!img.complete || img.naturalWidth > 0 || !src || src.startsWith("data:") || brokenCount >= 50) continue;
+    const cs = getComputedStyle(img);
+    if (cs.display === "none" || seen.has(img)) continue;
+    seen.add(img);
+    brokenCount++;
+    elements.push(describe(img, "image", cs, { broken: true, src: src.slice(0, 300) }));
+    collected.push(img);
+  }
+
+  // Overlapping text: two textual elements (neither inside the other) sharing > 30% of the smaller box.
+  const textual = elements
+    .map((d, i) => ({ d, el: collected[i] }))
+    .filter((x) => x.el && ["text", "heading", "button"].includes(x.d.role) && x.d.text);
+  for (let i = 0; i < textual.length; i++) {
+    const a = textual[i];
+    for (let j = i + 1; j < textual.length; j++) {
+      const b = textual[j];
+      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      const ix = Math.min(a.d.box.x + a.d.box.w, b.d.box.x + b.d.box.w) - Math.max(a.d.box.x, b.d.box.x);
+      const iy = Math.min(a.d.box.y + a.d.box.h, b.d.box.y + b.d.box.h) - Math.max(a.d.box.y, b.d.box.y);
+      if (ix <= 0 || iy <= 0) continue;
+      const smaller = Math.min(a.d.box.w * a.d.box.h, b.d.box.w * b.d.box.h);
+      if (smaller > 0 && (ix * iy) / smaller > 0.3) {
+        b.d.overlaps = a.d.selector;
+        break;
+      }
+    }
+  }
+
+  // Links: main navigation (for cross-page consistency) and same-site links (for broken-link checks).
+  const sameSite = (u) => u.hostname.replace(/^www\./, "") === location.hostname.replace(/^www\./, "");
+  const clean = (href) => {
+    try {
+      const u = new URL(href, location.href);
+      if (!/^https?:$/.test(u.protocol)) return null;
+      u.hash = "";
+      return u;
+    } catch { return null; }
+  };
+  const navRoot = document.querySelector("header nav, [data-elementor-type=header] nav, .elementor-location-header nav") || document.querySelector("nav");
+  const navLinks = navRoot
+    ? [...new Set([...navRoot.querySelectorAll("a[href]")].map((a) => clean(a.getAttribute("href"))).filter((u) => u && sameSite(u)).map((u) => u.href))].slice(0, 100)
+    : [];
+  const links = [...new Set([...document.querySelectorAll("a[href]")].map((a) => clean(a.getAttribute("href"))).filter((u) => u && sameSite(u)).map((u) => u.href))].slice(0, 300);
 
   // Elements that stick out past the viewport (outermost only), unless an ancestor scrolls/clips them.
   const docEl = document.documentElement;
@@ -141,6 +195,8 @@
       robotsMeta: meta("robots"),
       h1Count: document.querySelectorAll("h1").length,
       lang: docEl.getAttribute("lang") || undefined,
+      navLinks,
+      links,
     },
     elements,
   };

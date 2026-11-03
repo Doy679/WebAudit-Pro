@@ -1,5 +1,5 @@
 import type { PageSnapshot, RawIssue, Tokens } from "../types.js";
-import { makeIssue, elementorHint } from "./issue.js";
+import { makeIssue, elementorHint, isVisuallyHidden } from "./issue.js";
 
 const CLIPS = new Set(["hidden", "clip"]);
 const TEXTUAL = new Set(["text", "heading", "button", "link"]);
@@ -32,7 +32,7 @@ export function layoutChecks(page: PageSnapshot, _tokens: Tokens): RawIssue[] {
   }
 
   for (const e of page.elements) {
-    if (!TEXTUAL.has(e.role) || !e.scroll) continue;
+    if (!TEXTUAL.has(e.role) || !e.scroll || isVisuallyHidden(e)) continue;
     const clipsX = CLIPS.has(e.css.overflowX ?? "") && e.scroll.sw > e.scroll.cw + 1;
     const clipsY = CLIPS.has(e.css.overflowY ?? "") && e.scroll.sh > e.scroll.ch + 1;
     if (!clipsX && !clipsY) continue;

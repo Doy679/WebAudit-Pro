@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import type { Tokens } from "./types.js";
 import { runAudit } from "./audit.js";
+import { envPolicy } from "./security/ssrf.js";
 
 const HELP = `WebAudit Pro (POC): read-only website UX/UI audit
 
@@ -45,7 +46,7 @@ async function main() {
     : undefined;
   const maxPages = values["max-pages"] ? parseInt(values["max-pages"], 10) : urls?.length;
 
-  await runAudit({ startUrl: values.url, urls, maxPages, outDir: resolve(values.out!), tokens });
+  await runAudit({ startUrl: values.url, urls, maxPages, outDir: resolve(values.out!), tokens, policy: envPolicy() });
 }
 
 main().catch((e) => {

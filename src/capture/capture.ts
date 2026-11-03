@@ -7,6 +7,7 @@ import { launchBrowser } from "./browser.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { ElementSnapshot, PageSnapshot, Tokens } from "../types.js";
 import type { AxeLike } from "../checks/a11y.js";
+import { HostGuard, type SsrfPolicy } from "../security/ssrf.js";
 
 const EXTRACT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "extract.browser.js"), "utf8");
 // Applied to our own headless copy only, so screenshots are stable. Never touches the live site.
@@ -25,8 +26,13 @@ export class Capturer {
   private delayMs: number;
   private lastRequest = 0;
 
-  constructor(private tokens: Tokens, private runDir: string) {
+  private guard: HostGuard;
+  /** Requests aborted because they targeted a private/internal address. */
+  blockedRequests = 0;
+
+  constructor(private tokens: Tokens, private runDir: string, policy: SsrfPolicy = {}) {
     this.delayMs = tokens.crawl.delayMs;
+    this.guard = new HostGuard(policy);
   }
 
   async start() {
@@ -52,9 +58,16 @@ export class Capturer {
       serviceWorkers: "block",
     });
     // Read-only guardrail: any non-GET/HEAD request (forms, analytics beacons, XHR posts) is aborted.
-    await ctx.route("**/*", (route) =>
-      ["GET", "HEAD"].includes(route.request().method()) ? route.continue() : route.abort(),
-    );
+    // SSRF guardrail: every request (page, assets, redirects) must resolve to a public address.
+    await ctx.route("**/*", async (route) => {
+      const req = route.request();
+      if (!["GET", "HEAD"].includes(req.method())) return route.abort();
+      if (!(await this.guard.allows(req.url()))) {
+        this.blockedRequests++;
+        return route.abort("blockedbyclient");
+      }
+      return route.continue();
+    });
     this.contexts.set(viewport, ctx);
     return ctx;
   }
@@ -95,6 +108,7 @@ export class Capturer {
         }
       }
       if (status === 0) return empty(0, lastError);
+      if (!(await this.guard.allows(page.url()))) return empty(0, "Redirected to a private or internal address; page not audited.");
 
       await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
       await page.addStyleTag({ content: FREEZE_CSS }).catch(() => {});

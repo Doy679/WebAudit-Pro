@@ -34,11 +34,16 @@ describe("dedupeAndNumber", () => {
     expect(issue.confidence).toBe(0.8);
   });
 
-  it("keeps different selectors and pages separate", () => {
-    const issues = dedupeAndNumber([
-      raw({ viewport: 390 }), raw({ viewport: 390, selector: ".other" }), raw({ viewport: 390, url: "https://example.com/b" }),
-    ]);
-    expect(issues).toHaveLength(3);
+  it("keeps different selectors separate", () => {
+    const issues = dedupeAndNumber([raw({ viewport: 390 }), raw({ viewport: 390, selector: ".other" })]);
+    expect(issues).toHaveLength(2);
+  });
+
+  // Changed requirement (2026-11-03): one canonical finding per shared component, listing every page.
+  it("merges the same element across pages into one finding", () => {
+    const issues = dedupeAndNumber([raw({ viewport: 390 }), raw({ viewport: 390, url: "https://example.com/b" })]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].location.pages).toEqual(["https://example.com/", "https://example.com/b"]);
   });
 
   it("assigns stable type-prefixed IDs, high severity first", () => {

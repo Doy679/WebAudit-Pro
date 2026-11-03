@@ -55,7 +55,7 @@ describe("layout checks", () => {
 
 describe("button checks", () => {
   it("flags small tap targets on mobile viewports only", () => {
-    const btn = el({ selector: ".cta", role: "button", text: "Apply", box: { x: 0, y: 0, w: 80, h: 30 } });
+    const btn = el({ selector: ".cta", role: "button", text: "Apply", box: { x: 0, y: 0, w: 80, h: 20 } });
     expect(rules(buttonChecks(page({ viewport: 390, elements: [btn] }), tokens))).toContain("tap-target-small");
     expect(rules(buttonChecks(page({ viewport: 1440, elements: [btn] }), tokens))).not.toContain("tap-target-small");
   });

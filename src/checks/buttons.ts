@@ -1,5 +1,7 @@
 import type { PageSnapshot, RawIssue, Tokens } from "../types.js";
-import { makeIssue, elementorHint } from "./issue.js";
+import { makeIssue, elementorHint, isVisuallyHidden } from "./issue.js";
+
+const TAP_AA_MIN = 24;
 
 export function buttonChecks(page: PageSnapshot, tokens: Tokens): RawIssue[] {
   const issues: RawIssue[] = [];
@@ -8,21 +10,25 @@ export function buttonChecks(page: PageSnapshot, tokens: Tokens): RawIssue[] {
 
   for (const e of page.elements) {
     if (e.role !== "button" && e.role !== "link") continue;
+    if (isVisuallyHidden(e)) continue;
     const label = (e.text ?? "").slice(0, 40);
 
-    if (mobile && e.box.w > 0 && e.box.h > 0 && (e.box.w < min || e.box.h < min)) {
+    const minSide = Math.min(e.box.w, e.box.h);
+    if (mobile && minSide < min) {
+      // WCAG 2.2 AA (2.5.8) requires 24px; 44px is the AAA / platform guideline.
+      const failsAA = minSide < TAP_AA_MIN;
       issues.push(
         makeIssue(page, {
           type: "buttons",
-          rule: "tap-target-small",
-          kind: "confirmed",
-          severity: "medium",
-          confidence: 0.9,
-          title: "Tap target too small",
+          rule: failsAA ? "tap-target-small" : "tap-target-below-44",
+          kind: failsAA ? "confirmed" : "recommendation",
+          severity: failsAA ? "medium" : "low",
+          confidence: failsAA ? 0.9 : 0.75,
+          title: failsAA ? "Tap target below the 24px minimum" : `Tap target smaller than the recommended ${min}px`,
           current: `${Math.round(e.box.w)}×${Math.round(e.box.h)}px`,
-          proposed: `at least ${min}×${min}px`,
+          proposed: failsAA ? `at least ${TAP_AA_MIN}×${TAP_AA_MIN}px (WCAG 2.2 AA), ideally ${min}×${min}px` : `${min}×${min}px (WCAG AAA / mobile guideline)`,
           recommendation:
-            `Increase padding on "${label}" so it is at least ${min}px in both directions on mobile.` +
+            `Increase padding on "${label}" so it is easier to tap on mobile.` +
             elementorHint(e, "Style → Padding"),
           element: e,
         }),
@@ -49,7 +55,7 @@ export function buttonChecks(page: PageSnapshot, tokens: Tokens): RawIssue[] {
     }
 
     const href = e.href?.trim();
-    if (e.role === "button" && href !== undefined && (href === "" || href === "#")) {
+    if (e.role === "button" && !e.toggle && href !== undefined && (href === "" || href === "#")) {
       issues.push(
         makeIssue(page, {
           type: "buttons",

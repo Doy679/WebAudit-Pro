@@ -2,6 +2,7 @@ import { normalizeUrl, isSameSite } from "./normalize.js";
 import { parseRobots, isAllowed, type Robots } from "./robots.js";
 import { parseSitemap } from "./sitemap.js";
 import { samplePages } from "./sample.js";
+import { guardedFetch, type SsrfPolicy } from "../security/ssrf.js";
 
 const MAX_SITEMAPS = 10;
 const MAX_SITEMAP_URLS = 5000;
@@ -10,18 +11,19 @@ export interface Discovery {
   pages: string[];
   sitemapUrls: string[] | null;
   skipped: { url: string; reason: string }[];
+  robots: Robots;
 }
 
-async function fetchText(url: string, userAgent: string): Promise<string | null> {
+async function fetchText(url: string, userAgent: string, policy: SsrfPolicy): Promise<string | null> {
   try {
-    const res = await fetch(url, { headers: { "user-agent": userAgent }, signal: AbortSignal.timeout(15_000) });
+    const res = await guardedFetch(url, { headers: { "user-agent": userAgent } }, policy);
     return res.ok ? await res.text() : null;
   } catch {
     return null;
   }
 }
 
-async function readSitemaps(roots: string[], startUrl: string, userAgent: string): Promise<string[] | null> {
+async function readSitemaps(roots: string[], startUrl: string, userAgent: string, policy: SsrfPolicy): Promise<string[] | null> {
   const queue = [...roots];
   const visited = new Set<string>();
   const urls: string[] = [];
@@ -30,7 +32,7 @@ async function readSitemaps(roots: string[], startUrl: string, userAgent: string
     const sm = queue.shift()!;
     if (visited.has(sm)) continue;
     visited.add(sm);
-    const xml = await fetchText(sm, userAgent);
+    const xml = await fetchText(sm, userAgent, policy);
     if (!xml || !/<(urlset|sitemapindex)[\s>]/i.test(xml)) continue;
     found = true;
     const { kind, locs } = parseSitemap(xml);
@@ -48,15 +50,16 @@ async function readSitemaps(roots: string[], startUrl: string, userAgent: string
  * Builds the page list: an explicit URL list, or a sample from the sitemap.
  * Same site only, robots.txt respected either way.
  */
-export async function discover(opts: { startUrl: string; urls?: string[]; maxPages: number; userAgent: string }): Promise<Discovery> {
+export async function discover(opts: { startUrl: string; urls?: string[]; maxPages: number; userAgent: string; policy?: SsrfPolicy }): Promise<Discovery> {
+  const policy = opts.policy ?? {};
   const start = normalizeUrl(opts.startUrl);
   if (!start) throw new Error(`Invalid start URL: ${opts.startUrl}`);
   const origin = new URL(start).origin;
 
-  const robotsTxt = await fetchText(`${origin}/robots.txt`, opts.userAgent);
+  const robotsTxt = await fetchText(`${origin}/robots.txt`, opts.userAgent, policy);
   const robots: Robots = parseRobots(robotsTxt ?? "");
   const roots = robots.sitemaps.length ? robots.sitemaps : [`${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`];
-  const sitemapUrls = await readSitemaps(roots, start, opts.userAgent);
+  const sitemapUrls = await readSitemaps(roots, start, opts.userAgent, policy);
 
   const skipped: Discovery["skipped"] = [];
   const candidates: string[] = [];
@@ -77,5 +80,5 @@ export async function discover(opts: { startUrl: string; urls?: string[]; maxPag
     skipped.push({ url: start, reason: "blocked by robots.txt" });
     pages = samplePages(candidates[0] ?? start, candidates.slice(1), opts.maxPages).filter((u) => isAllowed(robots, u));
   }
-  return { pages, sitemapUrls, skipped };
+  return { pages, sitemapUrls, skipped, robots };
 }

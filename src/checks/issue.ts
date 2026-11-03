@@ -40,3 +40,11 @@ export function elementorHint(element: ElementSnapshot | undefined, setting: str
   if (!element?.elementorId) return "";
   return ` In Elementor: edit element ${element.elementorId} → ${setting}.`;
 }
+
+/**
+ * Screen-reader-only and collapsed elements (≤ 2px in either dimension). They are hidden on
+ * purpose, e.g. "skip to content" links, so size and clipping rules do not apply.
+ */
+export function isVisuallyHidden(e: ElementSnapshot): boolean {
+  return e.box.w <= 2 || e.box.h <= 2;
+}

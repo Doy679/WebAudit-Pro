@@ -2,9 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, readFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runAudit, type AuditResult } from "../src/audit.js";
+import { runAudit, AuditCancelledError, type AuditResult } from "../src/audit.js";
 import { startFixtureServer } from "./fixtureServer.js";
 import { tokens } from "./helpers.js";
+import { envPolicy, UnsafeUrlError } from "../src/security/ssrf.js";
 
 // Real Playwright run against a local fixture site. No live sites are touched.
 describe("runAudit (integration)", () => {
@@ -20,6 +21,7 @@ describe("runAudit (integration)", () => {
       outDir,
       tokens: { ...tokens, viewports: [390, 1440], a11yViewports: [390], crawl: { ...tokens.crawl, delayMs: 0 } },
       log: () => {},
+      policy: envPolicy(),
     });
   }, 180_000);
 
@@ -96,6 +98,23 @@ describe("runAudit (integration)", () => {
     expect(lang.evidence.annotated).toBeUndefined();
   });
 
+  it("detects broken images, broken internal links, placeholder text and misspellings", () => {
+    expect(find("broken-image")?.current).toContain("missing.jpg");
+    expect(find("placeholder-text")).toBeDefined();
+    expect(find("suspected-misspelling")?.kind).toBe("needs-review");
+    const links = result.issues.filter((i) => i.rule === "broken-internal-link").map((i) => i.current);
+    expect(links.some((c) => c?.includes("/old-rates → HTTP 404"))).toBe(true);
+    expect(result.summary.linksChecked).toBeGreaterThan(0);
+  });
+
+  it("gives every finding a fingerprint, page list and traceable occurrences", () => {
+    for (const i of result.issues) {
+      expect(i.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+      expect(i.location.pages.length).toBeGreaterThan(0);
+      expect(i.occurrences.length).toBeGreaterThan(0);
+    }
+  });
+
   it("records a failed page and keeps going", async () => {
     const out2 = await mkdtemp(join(tmpdir(), "webaudit-"));
     const r = await runAudit({
@@ -104,9 +123,34 @@ describe("runAudit (integration)", () => {
       outDir: out2,
       tokens: { ...tokens, viewports: [1440], a11yViewports: [], crawl: { ...tokens.crawl, delayMs: 0 } },
       log: () => {},
+      policy: envPolicy(),
     });
     expect(r.issues.some((i) => i.rule === "http-error" && i.location.url.endsWith("/missing-page"))).toBe(true);
     expect(r.summary.pages.find((p) => p.url.endsWith("/"))?.ok).toBe(true);
     await rm(out2, { recursive: true, force: true });
   }, 120_000);
+
+  it("reports progress and stops when cancelled", async () => {
+    const out3 = await mkdtemp(join(tmpdir(), "webaudit-"));
+    const seen: string[] = [];
+    let captures = 0;
+    await expect(runAudit({
+      startUrl: server.origin + "/",
+      outDir: out3,
+      tokens: { ...tokens, viewports: [390, 1440], a11yViewports: [], crawl: { ...tokens.crawl, delayMs: 0 } },
+      log: () => {},
+      policy: envPolicy(),
+      onProgress: (p) => { seen.push(p.phase); if (p.currentViewport) captures++; },
+      shouldCancel: () => captures >= 2,
+    })).rejects.toBeInstanceOf(AuditCancelledError);
+    expect(seen).toContain("discovering");
+    expect(seen).toContain("scanning");
+    expect(seen).not.toContain("done");
+    await rm(out3, { recursive: true, force: true });
+  }, 120_000);
+
+  it("refuses to audit loopback addresses without the test-only policy", async () => {
+    await expect(runAudit({ startUrl: server.origin + "/", outDir, tokens, log: () => {}, policy: {} }))
+      .rejects.toBeInstanceOf(UnsafeUrlError);
+  });
 });

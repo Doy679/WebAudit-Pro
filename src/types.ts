@@ -36,6 +36,13 @@ export interface ElementSnapshot {
   lineCount?: number;
   /** Link target (links/buttons only). */
   href?: string;
+  /** Menu/accordion toggle (aria-haspopup, aria-expanded or aria-controls): an empty href is intended. */
+  toggle?: boolean;
+  /** Image failed to load (images only). */
+  broken?: boolean;
+  src?: string;
+  /** Selector of another text element this one visibly overlaps. */
+  overlaps?: string;
 }
 
 export interface PageMeta {
@@ -47,6 +54,10 @@ export interface PageMeta {
   robotsMeta?: string;
   h1Count: number;
   lang?: string;
+  /** Absolute hrefs of the header/main navigation links. */
+  navLinks?: string[];
+  /** Absolute same-site hrefs found on the page (for broken-link checks). */
+  links?: string[];
 }
 
 export interface PageSnapshot {
@@ -60,7 +71,7 @@ export interface PageSnapshot {
   elements: ElementSnapshot[];
 }
 
-export type IssueType = "layout" | "typography" | "buttons" | "spacing" | "a11y" | "seo";
+export type IssueType = "layout" | "typography" | "buttons" | "spacing" | "a11y" | "seo" | "content" | "navigation" | "consistency";
 export type IssueKind = "confirmed" | "recommendation" | "needs-review";
 export type Severity = "high" | "medium" | "low";
 export type ReviewStatus = "pending" | "approved" | "revision-requested" | "rejected";
@@ -73,12 +84,20 @@ export interface Issue {
   severity: Severity;
   confidence: number;
   title: string;
+  /** Stable identity across runs: rule + selector without :nth-of-type (+ page path for page-level rules). */
+  fingerprint: string;
   location: {
     url: string;
+    /** Every page where this finding occurs (shared components list many). */
+    pages: string[];
     viewports: number[];
     selector?: string;
     elementorId?: string;
   };
+  /** Number of distinct element instances (page + selector) behind this finding. */
+  instanceCount: number;
+  /** Every raw occurrence, for traceability. */
+  occurrences: { url: string; viewport: number; selector?: string; screenshot: string; boxes: Box[] }[];
   current?: string;
   proposed?: string;
   evidence: {
@@ -95,7 +114,7 @@ export interface Issue {
 }
 
 /** An issue before ID assignment and dedupe. Single viewport. */
-export type RawIssue = Omit<Issue, "id" | "location" | "evidence" | "review"> & {
+export type RawIssue = Omit<Issue, "id" | "location" | "evidence" | "review" | "fingerprint" | "instanceCount" | "occurrences"> & {
   location: { url: string; viewport: number; selector?: string; elementorId?: string };
   evidence: { screenshot: string; boxes: Box[]; computedCss?: Record<string, unknown>; capturedAt: string };
 };
@@ -118,6 +137,8 @@ export interface Tokens {
     maxScreenshotHeight: number;
     retries: number;
     userAgent: string;
+    /** Max internal links to check per audit (HEAD requests). */
+    maxLinkChecks?: number;
     /** Installed browser to drive ("msedge", "chrome"), or "" for Playwright's bundled Chromium. */
     browserChannel?: string;
   };
