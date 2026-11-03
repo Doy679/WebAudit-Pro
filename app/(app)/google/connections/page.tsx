@@ -136,7 +136,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
               <div>
                 <label htmlFor="oauthClientSecret" className={label}>OAuth client secret</label>
                 <input id="oauthClientSecret" name="oauthClientSecret" type="password" autoComplete="off" placeholder={status.oauthConfigured ? "Saved (leave blank to keep)" : "GOCSPX-…"} className={`${input} mt-1`} />
-                <p className={hint}>Authorized redirect URI to add in Google Cloud: <code className="select-all">{status.redirectUri}</code></p>
+                <p className={hint}>Authorized redirect URI to add in Google Cloud: <code className="select-all break-all">{status.redirectUri}</code></p>
               </div>
               {status.oauthConfigured && <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="removeOauth" /> Remove the OAuth client</label>}
               <Submit>Save credentials</Submit>

@@ -7,7 +7,8 @@ import type { Issue } from "../types.js";
 const PAD = 120;
 const MAX_CROP_H = 1200;
 const MIN_CROP_H = 300;
-const MAX_ANNOTATED = 500;
+// Upper bound to keep annotation time bounded (about 0.2 s per crop); override with WEBAUDIT_MAX_ANNOTATED.
+const MAX_ANNOTATED = Number(process.env.WEBAUDIT_MAX_ANNOTATED ?? 3000);
 
 const HELPER = `<!doctype html><html><head><style>
 html,body{margin:0;background:#fff}#wrap{position:relative;display:inline-block}img{display:block}

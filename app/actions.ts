@@ -3,7 +3,8 @@
 import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { authenticate, createSession, createUser, destroySession, setUserDisabled, userCount, ROLES, type Role } from "@/server/auth";
+import { authenticate, changePassword, createSession, createUser, destroySession, resetPassword, setUserDisabled, userCount, ROLES, type Role } from "@/server/auth";
+import { backupDatabase } from "@/server/backup";
 import { addMember, createProject, removeMember, updateProject, type ProjectSettings } from "@/server/projects";
 import { ActiveAuditError, createAuditRun, requestCancel } from "@/server/runs";
 import { bulkReview, reviewIssue, type ReviewAction } from "@/server/issues";
@@ -301,10 +302,36 @@ export async function createUserAction(_: ActionState, fd: FormData): Promise<Ac
   });
 }
 
+export async function changePasswordAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser();
+    if (String(fd.get("next")) !== String(fd.get("confirm"))) return { error: "The new passwords don't match." };
+    const jar = await cookies();
+    changePassword(user, String(fd.get("current") ?? ""), String(fd.get("next") ?? ""), jar.get(SESSION_COOKIE)?.value);
+    return { ok: "Password changed. Other devices were signed out." };
+  });
+}
+
+export async function resetPasswordAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const admin = await requireUser("users:manage");
+    resetPassword(admin, str(fd, "userId"), String(fd.get("password") ?? ""));
+    return { ok: "Password reset. The user was signed out everywhere; share the new password through a secure channel." };
+  });
+}
+
+export async function backupAction(_: ActionState): Promise<ActionState> {
+  return attempt(async () => {
+    await requireUser("settings:manage");
+    const { file } = backupDatabase();
+    return { ok: `Database backup written to ${file}. Copy data/runs and data/exports separately for screenshots and reports.` };
+  });
+}
+
 export async function toggleUserAction(fd: FormData) {
   const user = await requireUser("users:manage");
   const id = str(fd, "userId");
-  if (id === user.id) throw new Error("You can't disable your own account.");
+  if (id === user.id) return; // the UI never offers this; ignore rather than crash the page
   setUserDisabled(id, str(fd, "disable") === "1");
   revalidatePath("/settings");
 }

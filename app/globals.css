@@ -13,6 +13,7 @@
   --color-navy-100: #e6ebf5;
   --color-navy-50: #f3f5fa;
 
+  --color-accent-300: #8db4f5; /* accent text on navy: 7.8:1 */
   --color-accent-600: #2563c9;
   --color-accent-500: #3b7be0;
   --color-accent-50: #eaf1fd;
@@ -25,6 +26,10 @@
   --color-sev-low-bg: #eef1f5;
   --color-ok: #067647;
   --color-ok-bg: #e7f6ee;
+
+  /* Darkened greys: Tailwind's slate-400/500 were 2.6:1 and 4.4:1 here (found by the app's own axe audit). */
+  --color-slate-400: #5f6f87;
+  --color-slate-500: #56657c;
 }
 
 html { background: #f6f7fa; color: #101828; }

@@ -3,7 +3,7 @@ import { orNotFound, requireUser } from "@/app/lib/session";
 import { getRun, listRuns, queuePosition, runPages } from "@/server/runs";
 import { workerStatus } from "@/server/worker-status";
 import { getProject } from "@/server/projects";
-import { listIssues } from "@/server/issues";
+import { runScoreInputs } from "@/server/issues";
 import { qualityScore } from "@/server/score";
 import { all } from "@/server/db";
 import { can } from "@/server/permissions";
@@ -28,7 +28,7 @@ export default async function AuditPage({ params }: { params: Promise<{ id: stri
   const counts = (col: string) => Object.fromEntries(
     all<{ k: string; n: number }>(`SELECT ${col} AS k, COUNT(*) AS n FROM issues WHERE run_id = ? AND verification_status != 'false_positive' GROUP BY ${col}`, id).map((x) => [x.k, x.n]));
   const byKind = counts("kind"), bySeverity = counts("severity"), byType = counts("type");
-  const scoreRows = r.status === "completed" ? listIssues(user, { runId: id, pageSize: 1000 }).rows : [];
+  const scoreRows = r.status === "completed" ? runScoreInputs(user, id) : [];
   const score = r.status === "completed" ? qualityScore(scoreRows, pages.filter((p) => p.ok).length, pages.length) : null;
 
   return (

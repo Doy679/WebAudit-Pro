@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useActionState, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { useRouter } from "next/navigation";
 import type { ActionState } from "@/app/actions";
 import { bareHost, hostInScope } from "@/server/scope";
 import { btn, cx, hint, input, label, Notice } from "./ui";
@@ -56,7 +55,6 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
   worker: WorkerInfo;
   action: (s: ActionState, fd: FormData) => Promise<ActionState>;
 }) {
-  const router = useRouter();
   const [projectId, setProjectId] = useState(initialProjectId);
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
   const [f, setF] = useState<Form>(() => defaultsFor(project));
@@ -72,7 +70,9 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
     if (!next) return;
     setProjectId(id);
     setF(defaultsFor(next));
-    router.replace(`/audits/new?project=${id}`, { scroll: false }); // keeps the selection on back/refresh
+    // Keep the selection on back/refresh without a server round-trip: router.replace re-rendered the page and
+    // remounted this form, wiping edits made right after switching (seen as an intermittent E2E failure).
+    window.history.replaceState(null, "", `/audits/new?project=${id}`);
   }
 
   const blocked = !!urlProblem || !!listProblem || !f.viewports.length;

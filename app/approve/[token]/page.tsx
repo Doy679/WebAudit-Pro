@@ -41,7 +41,7 @@ export default async function ClientApprovalPage({ params }: { params: Promise<{
     <main className="min-h-screen bg-navy-50">
       <header className="bg-navy-900 px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
-          <div className="text-xs font-semibold uppercase tracking-widest text-accent-500">Website audit · approval</div>
+          <div className="text-xs font-semibold uppercase tracking-widest text-accent-300">Website audit · approval</div>
           <h1 className="mt-1 text-2xl font-semibold">{pkg.title}</h1>
           <p className="mt-1 text-sm text-white/75">{pkg.project_name} · audit of {fmtDate(pkg.run_created_at)} · link valid until {fmtDate(pkg.expires_at)}</p>
         </div>

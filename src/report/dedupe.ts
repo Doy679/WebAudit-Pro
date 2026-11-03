@@ -8,8 +8,13 @@ const PREFIX: Record<IssueType, string> = {
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const MAX_BOXES = 20;
 
-/** Selector with sibling positions removed, so repeated instances of one component match. */
-export const normalizeSelector = (s: string) => s.replace(/:nth-of-type\(\d+\)/g, "").replace(/\s+/g, " ").trim();
+/**
+ * Selector with sibling positions removed, so repeated instances of one component match.
+ * Runs of 8+ digits (timestamps/random ids generated per page load, e.g. SmartMenus "#sm-1793682731580727-1")
+ * are replaced so the same element keeps the same fingerprint across audits.
+ */
+export const normalizeSelector = (s: string) =>
+  s.replace(/:nth-of-type\(\d+\)/g, "").replace(/\d{8,}/g, "#").replace(/\s+/g, " ").trim();
 
 /**
  * Stable identity of a finding across pages, viewports and runs.

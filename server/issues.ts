@@ -248,6 +248,29 @@ export function bulkReview(user: User, ids: string[], a: ReviewAction): number {
 }
 
 /** Distinct values for filter dropdowns, within the user's scope. */
+function runProject(user: User, runId: string): string {
+  const r = get<{ project_id: string }>("SELECT project_id FROM audit_runs WHERE id = ?", runId);
+  if (!r) throw new NotFoundError("Audit run not found.");
+  assertProjectAccess(user, r.project_id);
+  return r.project_id;
+}
+
+/** The fields the quality score needs, for every finding in the run (no row cap). */
+export function runScoreInputs(user: User, runId: string) {
+  runProject(user, runId);
+  return all<{ kind: string; severity: string; type: string; verification_status: string }>(
+    "SELECT kind, severity, type, verification_status FROM issues WHERE run_id = ?", runId);
+}
+
+/** Every internally reviewed finding (confirmed or approved, never false positives) that may be released to a client. */
+export function releasableIssues(user: User, runId: string) {
+  runProject(user, runId);
+  return all<{ id: string; code: string; title: string; severity: string; verification_status: string; review_status: string }>(
+    `SELECT id, code, title, severity, verification_status, review_status FROM issues
+     WHERE run_id = ? AND verification_status != 'false_positive' AND (verification_status = 'confirmed' OR review_status = 'approved')
+     ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, code`, runId);
+}
+
 /** Distinct values for the filter dropdowns, limited to the selected run or website so no other project's pages appear. */
 export function filterOptions(user: User, runId?: string, projectId?: string) {
   const scope = projectScope(user, "i.project_id");

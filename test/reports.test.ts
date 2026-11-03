@@ -157,6 +157,8 @@ describe("PDF, HTML and JSON reports", () => {
     const json = JSON.parse(readFileSync((await generate("json")).file_path!, "utf8"));
     expect(json.issues.map((i: { code: string }) => i.code).sort()).toEqual(["CNT-0001", "LAY-0001", "SPC-0001"]);
     expect(json.project.name).toBe("Capital Home Mortgage");
+    // Parsed values only: no raw database JSON columns duplicated as strings.
+    for (const k of ["occurrences_json", "pages_json", "viewports_json", "evidence_json"]) expect(json.issues[0][k]).toBeUndefined();
   });
 
   it("stores files outside any public directory", async () => {

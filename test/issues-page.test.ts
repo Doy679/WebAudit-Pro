@@ -118,6 +118,21 @@ describe("listIssues", () => {
   });
 });
 
+describe("whole-run aggregates (no silent 1,000-row cap)", () => {
+  it("scores every finding in a large run, not just the first 1,000", () => {
+    expect(issues.runScoreInputs(admin, rrRun)).toHaveLength(2000);
+    expect(() => issues.runScoreInputs(outsider, rrRun)).toThrow(perms.ForbiddenError);
+  });
+
+  it("lists every internally reviewed finding for client release", () => {
+    run("UPDATE issues SET verification_status = 'confirmed' WHERE run_id = ?", rrRun);
+    run("UPDATE issues SET verification_status = 'false_positive' WHERE run_id = ? AND code = 'LAY-0001'", rrRun);
+    const rows = issues.releasableIssues(admin, rrRun);
+    expect(rows).toHaveLength(1999);
+    expect(rows.some((r) => r.code === "LAY-0001")).toBe(false);
+  });
+});
+
 describe("malformed or incomplete stored findings", () => {
   let bad: string;
   beforeAll(() => {

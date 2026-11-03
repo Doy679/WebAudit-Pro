@@ -32,7 +32,8 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="Screenshot view">
+      <div className="mb-2 flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Screenshot view">
         {annotated && (
           <button type="button" role="tab" aria-selected={mode === "crop"} onClick={() => setMode("crop")}
             className={cx("rounded px-2 py-1 text-xs font-medium", mode === "crop" ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700")}>
@@ -45,6 +46,7 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
             {s.viewport}px full page
           </button>
         ))}
+      </div>
         <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-accent-600 underline">Open audited page ↗</a>
       </div>
 

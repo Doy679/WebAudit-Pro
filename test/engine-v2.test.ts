@@ -117,6 +117,16 @@ describe("fingerprint grouping", () => {
       .toBe(fingerprint(raw("https://e.com/x", ".dots > div:nth-of-type(90)")));
   });
 
+  it("is stable when a plugin generates element IDs per page load (SmartMenus #sm-<timestamp>-N on the CHM pilot)", () => {
+    expect(fingerprint(raw("https://e.com/", "#sm-1793682731580727-1", 390, "axe:aria-valid-attr-value")))
+      .toBe(fingerprint(raw("https://e.com/", "#sm-17936905811318271-1", 390, "axe:aria-valid-attr-value")));
+    // Different menu items stay different.
+    expect(fingerprint(raw("https://e.com/", "#sm-1793682731580727-1", 390, "axe:aria-valid-attr-value")))
+      .not.toBe(fingerprint(raw("https://e.com/", "#sm-1793682731580727-3", 390, "axe:aria-valid-attr-value")));
+    // Short numbers (h2, col-50, elementor ids) are not touched.
+    expect(fingerprint(raw("https://e.com/", ".elementor-element-1a2b3c4 h2", 390))).not.toBe(fingerprint(raw("https://e.com/", ".elementor-element-1a2b3c5 h2", 390)));
+  });
+
   it("keeps page-level findings (no selector) per page", () => {
     expect(fingerprint(raw("https://e.com/a", undefined, 1440, "h1-missing")))
       .not.toBe(fingerprint(raw("https://e.com/b", undefined, 1440, "h1-missing")));

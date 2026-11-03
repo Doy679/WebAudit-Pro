@@ -63,7 +63,8 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
                       <span><Source kind="gsc" when={insp.fetched_at} /> verdict {insp.data.richResults.verdict ?? "n/a"}: {insp.data.richResults.items.map((i: { type: string }) => i.type).join(", ") || "none detected"}</span>
                     ) : <Unavailable why={insp ? "Google reported none" : "URL not inspected"} />}
                   </div>
-                  <table className="w-full text-left text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
                     <thead className="text-xs uppercase text-slate-500"><tr><th className="py-1 pr-3">Type</th><th className="pr-3">Format</th><th className="pr-3">Schema validity</th><th className="pr-3">Google candidate check</th><th>Issues</th></tr></thead>
                     <tbody className="divide-y divide-slate-100 align-top">
                       {p.items.map((it, n) => (
@@ -90,6 +91,7 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </Card>
               );
             })}

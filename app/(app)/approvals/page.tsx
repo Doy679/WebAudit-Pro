@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
 import { listRuns } from "@/server/runs";
-import { listIssues } from "@/server/issues";
+import { releasableIssues } from "@/server/issues";
 import { listPackages } from "@/server/approvals";
 import { can } from "@/server/permissions";
 import { createApprovalAction } from "@/app/actions";
@@ -22,8 +22,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
   const runs = manage ? listRuns(user, { status: "completed", limit: 100 }) : [];
   const selected = runs.find((r) => r.id === run) ?? runs[0];
   const eligible = selected
-    ? listIssues(user, { runId: selected.id, pageSize: 1000 }).rows.filter(
-        (i) => i.verification_status !== "false_positive" && (i.verification_status === "confirmed" || i.review_status === "approved"))
+    ? releasableIssues(user, selected.id)
     : [];
 
   return (

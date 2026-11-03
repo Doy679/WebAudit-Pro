@@ -38,7 +38,7 @@ export function Nav({ userName, roleLabel, logout, worker }: { userName: string;
       >
         <div className="lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <div className="hidden px-5 pb-4 pt-6 lg:block">
-          <div className="text-xs font-semibold uppercase tracking-widest text-accent-500">WebAudit Pro</div>
+          <div className="text-xs font-semibold uppercase tracking-widest text-accent-300">WebAudit Pro</div>
           <div className="mt-0.5 text-xs text-white/60">Read-only website audits</div>
         </div>
         <nav aria-label="Main" className="flex-1 px-3 py-2">

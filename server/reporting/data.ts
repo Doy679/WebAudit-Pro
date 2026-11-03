@@ -1,4 +1,4 @@
-import { all, get } from "../db";
+import { all, get, safeJson } from "../db";
 import type { ExportFilters, ExportRow } from "../exports";
 import { qualityScore } from "../score";
 import { getSetting } from "../settings";
@@ -54,12 +54,18 @@ export function loadReportData(exp: ExportRow): ReportData {
        (SELECT d.comment FROM client_decisions d WHERE d.issue_id = i.id ORDER BY d.created_at DESC LIMIT 1) AS client_comment,
        (SELECT d.client_name FROM client_decisions d WHERE d.issue_id = i.id ORDER BY d.created_at DESC LIMIT 1) AS client_name
      FROM issues i LEFT JOIN users u ON u.id = i.assignee_id WHERE i.run_id = ?`, exp.run_id);
-  const everything: ReportIssue[] = raw.map((r) => ({
-    ...(r as unknown as ReportIssue),
-    pages: JSON.parse(r.pages_json as string),
-    viewports: JSON.parse(r.viewports_json as string),
-    evidence: JSON.parse(r.evidence_json as string),
-  })).sort((a, b) => (SEV[a.severity] - SEV[b.severity]) || b.confidence - a.confidence || a.code.localeCompare(b.code));
+  const everything: ReportIssue[] = raw.map((r) => {
+    // Raw JSON columns are parsed once and dropped (occurrences alone averaged 7.5 KB per finding);
+    // malformed values fall back to safe defaults instead of failing the whole report.
+    const { pages_json, viewports_json, evidence_json, occurrences_json: _o, related_json: _r, ...rest } = r;
+    const pages = safeJson<string[]>(pages_json, []);
+    return {
+      ...(rest as unknown as ReportIssue),
+      pages: Array.isArray(pages) && pages.length ? pages : [r.url as string],
+      viewports: safeJson<number[]>(viewports_json, []),
+      evidence: { screenshots: [], capturedAt: "", ...safeJson<Partial<ReportIssue["evidence"]>>(evidence_json, {}) } as ReportIssue["evidence"],
+    };
+  }).sort((a, b) => (SEV[a.severity] - SEV[b.severity]) || b.confidence - a.confidence || a.code.localeCompare(b.code));
 
   const pagesRaw = all<{ url: string; ok: number; status: number; error: string | null }>("SELECT url, ok, status, error FROM run_pages WHERE run_id = ? ORDER BY url", exp.run_id);
   const live = everything.filter((i) => i.verification_status !== "false_positive");

@@ -124,15 +124,15 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
                     const after = n < MAX_IMAGE_ROWS ? shot(r.latestIssue?.id) : undefined;
                     return (
                       <div key={r.fingerprint} className="rounded-lg border border-slate-200 bg-white p-3" data-testid="compare-row" data-status={r.status}>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 break-words">
                           <StatusPill status={r.status} /><SeverityBadge severity={r.severity} />
                           <Link href={`/issues/${target.id}`} className="font-medium text-navy-900 hover:underline">{target.code}: {r.title}</Link>
                           <span className="text-xs text-slate-500">{shortUrl(r.pages[0] ?? "")}{r.pages.length > 1 ? ` +${r.pages.length - 1}` : ""}</span>
                         </div>
                         {(r.before || r.after) && (
                           <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-                            <div><span className="text-xs uppercase text-slate-500">Before</span><div className="font-mono text-xs">{r.before ?? "–"}</div></div>
-                            <div><span className="text-xs uppercase text-slate-500">After</span><div className="font-mono text-xs">{r.after ?? (r.status === "resolved" ? "Not found in the newer audit" : "–")}</div></div>
+                            <div className="min-w-0"><span className="text-xs uppercase text-slate-500">Before</span><div className="break-all font-mono text-xs">{r.before ?? "–"}</div></div>
+                            <div className="min-w-0"><span className="text-xs uppercase text-slate-500">After</span><div className="break-all font-mono text-xs">{r.after ?? (r.status === "resolved" ? "Not found in the newer audit" : "–")}</div></div>
                           </div>
                         )}
                         {(before || after) && (

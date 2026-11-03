@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { all, get, run, newId, now } from "./db";
+import { ForbiddenError } from "./permissions";
 
 export type Role = "admin" | "pm" | "qa" | "developer" | "client";
 export const ROLES: Role[] = ["admin", "pm", "qa", "developer", "client"];
@@ -80,6 +81,27 @@ export const userCount = () => get<{ n: number }>("SELECT COUNT(*) AS n FROM use
 
 export function listUsers(): (User & { disabled: number; created_at: string })[] {
   return all("SELECT id, email, name, role, disabled, created_at FROM users ORDER BY created_at");
+}
+
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/** Changes the user's own password after checking the current one; signs out every other session. */
+export function changePassword(user: User, current: string, next: string, keepSessionToken?: string) {
+  const row = get<{ password_hash: string }>("SELECT password_hash FROM users WHERE id = ?", user.id);
+  if (!row || !verifyPassword(current, row.password_hash)) throw new Error("The current password is incorrect.");
+  if (next.length < MIN_PASSWORD) throw new Error(`Passwords must be at least ${MIN_PASSWORD} characters.`);
+  if (next === current) throw new Error("Choose a password different from the current one.");
+  run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(next), user.id);
+  run("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?", user.id, keepSessionToken ? sha(keepSessionToken) : "");
+}
+
+/** Admin-only reset for a user who lost their password; signs that user out everywhere. */
+export function resetPassword(admin: User, userId: string, next: string) {
+  if (admin.role !== "admin") throw new ForbiddenError("Only admins can reset passwords.");
+  if (next.length < MIN_PASSWORD) throw new Error(`Passwords must be at least ${MIN_PASSWORD} characters.`);
+  if (!get("SELECT 1 FROM users WHERE id = ?", userId)) throw new Error("User not found.");
+  run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(next), userId);
+  run("DELETE FROM sessions WHERE user_id = ?", userId);
 }
 
 export function setUserDisabled(userId: string, disabled: boolean) {

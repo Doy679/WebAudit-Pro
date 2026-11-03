@@ -481,6 +481,50 @@ describe("WebAudit Pro end to end", () => {
     });
   });
 
+  it("UI audit: no page scrolls sideways at 320–1440px, and the app has no critical/serious axe violations", async () => {
+    const { AxeBuilder } = await import("@axe-core/playwright");
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const issueId = issueUrl.split("/").pop();
+    const routes = [
+      "/", "/projects", `/projects/${projectId}`, `/audits/new?project=${projectId}`, "/audits", `/audits/${runId}`,
+      "/issues", `/issues/${issueId}`, `/reports?run=${runId}`, "/approvals", `/reaudit?project=${projectId}`,
+      `/google?project=${projectId}`, `/google/pagespeed?project=${projectId}`, `/google/structured-data?project=${projectId}`,
+      `/google/connections?project=${projectId}`, "/settings",
+    ];
+    const overflow: string[] = [];
+    const a11y: { route: string; id: string; impact: string; nodes: number; help: string }[] = [];
+    for (const width of [320, 390, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const r of routes) {
+        await page.goto(`${APP}${r}`);
+        const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+        if (sw > width + 1) {
+          const culprit = await page.evaluate((w) => {
+            const out: string[] = [];
+            for (const el of document.querySelectorAll("body *")) {
+              const r = el.getBoundingClientRect();
+              if (r.right <= w + 1 || r.width === 0) continue;
+              let p = el.parentElement, inside = false;
+              while (p) { if (getComputedStyle(p).overflowX !== "visible") { inside = true; break; } if (p.getBoundingClientRect().right > w + 1) { inside = true; break; } p = p.parentElement; }
+              if (!inside) out.push(`${el.tagName.toLowerCase()}.${[...el.classList].slice(0, 3).join(".")} (${Math.round(r.right)}px)`);
+            }
+            return out.slice(0, 3).join("; ");
+          }, width);
+          overflow.push(`${r} @ ${width}px: page is ${sw}px wide · ${culprit}`);
+        }
+        if (width === 1440 || width === 390) {
+          const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+          for (const v of res.violations) a11y.push({ route: `${r} @ ${width}px`, id: v.id, impact: v.impact ?? "", nodes: v.nodes.length, help: v.help, targets: v.nodes.slice(0, 3).map((n) => `${n.target.join(" ")} :: ${(n.failureSummary ?? "").split(String.fromCharCode(10)).slice(1, 2).join("").trim().slice(0, 120)}`) } as never);
+        }
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    mkdirSync("test-results", { recursive: true });
+    writeFileSync("test-results/ui-audit.json", JSON.stringify({ overflow, a11y }, null, 2));
+    expect(overflow).toEqual([]);
+    expect(a11y.filter((v) => v.impact === "critical" || v.impact === "serious")).toEqual([]);
+  }, 600_000);
+
   it("Test 14: the audited website only ever received read-only requests", () => {
     expect(site.requests.length).toBeGreaterThan(10);
     const methods = new Set(site.requests.map((r) => r.method));
