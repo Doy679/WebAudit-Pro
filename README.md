@@ -26,6 +26,11 @@ npm run create-admin -- --email you@agency.com --name "Your Name" --password "at
 
 Production-style run: `npm run build` then `npm start` (also starts the worker).
 
+### Accounts and backups
+- **Settings → Your account**: change your password (signs you out on other devices). Admins can reset another user's password and disable accounts.
+- **Backups**: `npm run backup` (or Settings → Backup) writes a consistent copy of the database to `data/backups/`, safe while the app runs. Copy `data/runs` and `data/exports` too for screenshots and reports. To restore: stop the app, replace `data/webaudit.db` with the backup file, start the app.
+- Engineering status, backlog and test evidence: [`docs/agile/`](docs/agile/).
+
 ### The audit worker
 Audits, reports and Google requests run in a separate **worker** process; the web app only queues them.
 - `npm run dev` and `npm start` start **both** the web app and the worker. `npm run web` starts only the web app; then run `npm run worker` in a second terminal.

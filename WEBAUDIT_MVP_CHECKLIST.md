@@ -59,6 +59,10 @@ Last verified: 2026-11-03. 125 unit/integration tests and 11 end-to-end tests pa
   - **Acceptance:** private expiring, revocable links; the client approves, rejects, requests revision and comments, with name, email, time, IP and user agent stored. Re-audit classifies New / Still present / Resolved / Reopened / Changed / Unable to verify, with before/after values and screenshots. Neither approval nor re-audit touches the website (E2E Test 14: the fixture site only ever received GET/HEAD).
   - **Limitations:** links are shared manually (no email sending). Rate limiting of client submissions is in-memory per process.
 
+## Sprint 2026-11-03 (Issues crash fix and system audit)
+- [x] P0 `/issues` crash fixed and verified on a copy of the real data (root cause: empty `sort=` → `ORDER BY undefined`). Details, backlog and test evidence: `docs/agile/`.
+- Final results: 221 unit/integration and 19 E2E tests passing; 0 horizontal overflow and 0 axe violations on 16 app pages.
+
 ## Bug fixes (2026-11-03): wrong project audited, audits stuck "pending"
 
 - [x] Selecting a project on New Audit loads its URL, authorized domain and saved defaults (one synchronized form; selection kept in `?project=`).
