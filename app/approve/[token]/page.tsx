@@ -68,7 +68,7 @@ export default async function ClientApprovalPage({ params }: { params: Promise<{
               <p className="break-all text-xs text-slate-500">{i.url}{i.pages.length > 1 ? ` and ${i.pages.length - 1} other page${i.pages.length > 2 ? "s" : ""}` : ""} · {i.viewports.map((v) => `${v}px`).join(", ")}</p>
               {i.evidence.annotated && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={img(i.id, "annotated")} alt={`Screenshot for ${i.code} with the affected area outlined`} className="mt-3 w-full rounded border border-slate-200" loading="lazy" />
+                <img src={img(i.id, "annotated")} alt={`Screenshot for ${i.code} with the affected area outlined`} className="mx-auto mt-3 block h-auto max-w-full rounded border border-slate-200" loading="lazy" />
               )}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-md bg-sev-high-bg/60 p-3"><div className="text-xs font-semibold uppercase text-sev-high">Current</div><div className="mt-1 text-sm">{i.current_value ?? "Not measured"}</div></div>

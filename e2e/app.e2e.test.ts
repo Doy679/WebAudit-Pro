@@ -2,7 +2,7 @@
 // against a local fixture website. Requires `npm run build` first (npm run test:e2e does this).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import ExcelJS from "exceljs";
@@ -39,6 +39,16 @@ function startProc(args: string[]) {
   return p;
 }
 
+/** Set E2E_SCREENSHOTS=1 to save desktop + phone screenshots of key screens to test-results/. */
+async function snap(name: string, target: Page = page) {
+  if (!process.env.E2E_SCREENSHOTS) return;
+  await target.screenshot({ path: `test-results/${name}-desktop.png`, fullPage: true });
+  const size = target.viewportSize();
+  await target.setViewportSize({ width: 390, height: 844 });
+  await target.screenshot({ path: `test-results/${name}-phone.png`, fullPage: true });
+  if (size) await target.setViewportSize(size);
+}
+
 async function waitForApp() {
   for (let i = 0; i < 120; i++) {
     try {
@@ -64,6 +74,7 @@ async function waitForRun(id: string, statuses = ["completed"]) {
 }
 
 beforeAll(async () => {
+  if (process.env.E2E_SCREENSHOTS) mkdirSync("test-results", { recursive: true });
   site = await startFixtureServer();
   dataDir = mkdtempSync(join(tmpdir(), "webaudit-e2e-"));
   startProc([resolve("node_modules/next/dist/bin/next"), "start", "-p", String(PORT), "-H", "127.0.0.1"]);
@@ -136,6 +147,7 @@ describe("WebAudit Pro end to end", () => {
     const json = await api.json();
     expect(json).toMatchObject({ status: "completed", pagesDone: 2 });
     expect(json.findings).toBeGreaterThan(0);
+    await snap("audit-complete");
   });
 
   it("Tests 4–6: opens results, the screenshot evidence and Current vs Proposed", async () => {
@@ -154,6 +166,10 @@ describe("WebAudit Pro end to end", () => {
     expect(evidenceSrc).toContain(`/api/evidence/${runId}/annotated/`);
     await page.getByRole("tab", { name: "390px full page" }).click();
     expect(await page.locator("img[alt='Full-page screenshot at 390px']").count()).toBe(1);
+    await page.goto(issueUrl);
+    await snap("issue-detail");
+    await page.goto(`${APP}/issues?run=${runId}`);
+    await snap("issue-finder");
   });
 
   it("Test 7: records a review decision with a note and keeps it after reload", async () => {
@@ -187,6 +203,7 @@ describe("WebAudit Pro end to end", () => {
     expect(ids.some((id) => id.startsWith("LAY-"))).toBe(true);
 
     const pdfHref = (await page.getByTestId("download-pdf").first().getAttribute("href"))!;
+    await snap("reports");
     const pdf = await page.request.get(`${APP}${pdfHref}`);
     expect((await pdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
   });
@@ -203,6 +220,7 @@ describe("WebAudit Pro end to end", () => {
     expect(await portal.getByTestId("portal-finding").count()).toBe(1);
     const shot = portal.locator("[data-testid=portal-finding] img").first();
     await portal.waitForFunction((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0, await shot.elementHandle());
+    await snap("client-portal", portal);
     await portal.getByLabel("Approve").check();
     await portal.locator("textarea[name^='comment:']").fill("Please fix on mobile");
     await portal.getByLabel("Your name").fill("Client E2E");
@@ -238,6 +256,9 @@ describe("WebAudit Pro end to end", () => {
     const resolved = page.locator("[data-testid=compare-row][data-status=resolved]", { hasText: "Page scrolls sideways" });
     expect(await resolved.count()).toBe(1);
     expect(await page.locator("[data-testid=compare-row][data-status=still_present]").count()).toBeGreaterThan(0);
+    await snap("reaudit");
+    await page.goto(`${APP}/`);
+    await snap("overview");
   });
 
   it("Test 3b: cancels a running audit from the progress page", async () => {

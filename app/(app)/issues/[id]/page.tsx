@@ -47,7 +47,9 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SeverityBadge severity={i.severity} /><KindBadge kind={i.kind} />
         <span className="text-xs text-slate-600">Confidence {Math.round(i.confidence * 100)}%</span>
-        <StatusPill status={i.verification_status} /><StatusPill status={i.review_status} /><StatusPill status={i.implementation_status} />
+        <span className="text-xs text-slate-500">Verification</span><StatusPill status={i.verification_status} />
+        <span className="text-xs text-slate-500">Review</span><StatusPill status={i.review_status} />
+        <span className="text-xs text-slate-500">Implementation</span><StatusPill status={i.implementation_status} />
         {i.priority && <span className="text-xs text-slate-600">Priority: <strong className="capitalize">{i.priority}</strong></span>}
         {i.client_decision && <span className="text-xs text-slate-600">Client: <strong>{STATUS_LABEL[i.client_decision] ?? i.client_decision}</strong></span>}
       </div>

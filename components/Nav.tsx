@@ -33,8 +33,9 @@ export function Nav({ userName, roleLabel, logout }: { userName: string; roleLab
       </div>
       <aside
         id="main-nav"
-        className={cx("bg-navy-900 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:flex-col", open ? "block" : "hidden lg:flex")}
+        className={cx("bg-navy-900 text-white lg:w-60 lg:shrink-0", open ? "block" : "hidden lg:block")}
       >
+        <div className="lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <div className="hidden px-5 pb-4 pt-6 lg:block">
           <div className="text-xs font-semibold uppercase tracking-widest text-accent-500">WebAudit Pro</div>
           <div className="mt-0.5 text-xs text-white/60">Read-only website audits</div>
@@ -64,6 +65,7 @@ export function Nav({ userName, roleLabel, logout }: { userName: string; roleLab
           <form action={logout} className="mt-2">
             <button type="submit" className="text-xs text-white/80 underline hover:text-white">Sign out</button>
           </form>
+        </div>
         </div>
       </aside>
     </>

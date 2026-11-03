@@ -53,7 +53,7 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
       {mode === "crop" && annotated && !failed && (
         <a href={annotated} target="_blank" rel="noopener noreferrer">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={annotated} alt="Annotated screenshot with the affected element outlined in red" className="w-full rounded border border-slate-200" onError={() => setFailed(true)} data-testid="evidence-image" />
+          <img src={annotated} alt="Annotated screenshot with the affected element outlined in red" className="mx-auto block h-auto max-w-full rounded border border-slate-200" onError={() => setFailed(true)} data-testid="evidence-image" />
         </a>
       )}
 

@@ -115,7 +115,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                 {rows.map((i) => (
                   <tr key={i.id} className={cx("hover:bg-slate-50", i.verification_status === "false_positive" && "opacity-60")}>
                     {reviewer && <td className="px-3 py-2"><input type="checkbox" name="ids" value={i.id} aria-label={`Select ${i.code}`} /></td>}
-                    <td className="px-3 py-2 font-mono text-xs"><Link href={`/issues/${i.id}`} className="text-accent-600 hover:underline">{i.code}</Link></td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs"><Link href={`/issues/${i.id}`} className="text-accent-600 hover:underline">{i.code}</Link></td>
                     <td className="max-w-xs px-3 py-2">
                       <Link href={`/issues/${i.id}`} className="font-medium text-navy-900 hover:underline">{i.title}</Link>
                       {i.current_value && <div className="truncate text-xs text-slate-500">{i.current_value}</div>}
