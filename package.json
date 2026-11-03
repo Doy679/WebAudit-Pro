@@ -5,19 +5,37 @@
   "type": "module",
   "description": "WebAudit Pro Phase 1 POC: read-only website UX/UI audit engine",
   "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "dev": "tsx scripts/dev.ts",
+    "web": "next dev -p 3000",
+    "worker": "tsx worker/worker.ts",
+    "build": "next build",
+    "start": "tsx scripts/dev.ts --prod",
+    "create-admin": "tsx scripts/create-admin.ts",
     "audit": "tsx src/cli.ts",
     "demo": "tsx scripts/demo.ts",
+    "recheck": "tsx scripts/recheck.ts",
     "test": "vitest run",
-    "test:watch": "vitest",
+    "test:e2e": "next build && vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@axe-core/playwright": "^4.11.0",
+    "exceljs": "^4.4.0",
+    "next": "^15.5.4",
     "playwright": "^1.56.1",
-    "playwright-core": "^1.56.1"
+    "playwright-core": "^1.56.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^24.10.0",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "tailwindcss": "^4.1.13",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

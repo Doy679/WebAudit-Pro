@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* WebAudit Pro: navy + white + cool neutrals. Accent is a restrained steel blue; severity colors are semantic only. */
+@theme {
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --color-navy-950: #0a1530;
+  --color-navy-900: #0f1f3d;
+  --color-navy-800: #172b52;
+  --color-navy-700: #22396a;
+  --color-navy-600: #2f4a85;
+  --color-navy-100: #e6ebf5;
+  --color-navy-50: #f3f5fa;
+
+  --color-accent-600: #2563c9;
+  --color-accent-500: #3b7be0;
+  --color-accent-50: #eaf1fd;
+
+  --color-sev-high: #b42318;
+  --color-sev-high-bg: #fdecea;
+  --color-sev-med: #b54708;
+  --color-sev-med-bg: #fef4e6;
+  --color-sev-low: #475467;
+  --color-sev-low-bg: #eef1f5;
+  --color-ok: #067647;
+  --color-ok-bg: #e7f6ee;
+}
+
+html { background: #f6f7fa; color: #101828; }
+body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { text-wrap: balance; }
+:focus-visible { outline: 2px solid var(--color-accent-500); outline-offset: 2px; }
+.tabular { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
