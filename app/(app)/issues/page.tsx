@@ -8,7 +8,7 @@ import { can, projectScope } from "@/server/permissions";
 import { bulkReviewAction } from "@/app/actions";
 import { ActionForm, SelectAll, Submit } from "@/components/forms";
 import { btn, cx, Empty, fmtDate, input, KindBadge, PageHeader, SeverityBadge, shortUrl, StatusPill } from "@/components/ui";
-import { TYPE_LABEL } from "@/components/constants";
+import { PROVIDER_LABEL, TYPE_LABEL } from "@/components/constants";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Issues" };
@@ -21,7 +21,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   const filters: IssueFilters = {
     runId: sp.run, projectId: sp.project, url: sp.url, type: sp.type, severity: sp.severity, kind: sp.kind,
     viewport: sp.viewport ? Number(sp.viewport) : undefined, verification: sp.verification, review: sp.review,
-    assignee: sp.assignee, minConfidence: sp.conf ? Number(sp.conf) : undefined, q: sp.q,
+    assignee: sp.assignee, provider: sp.provider, minConfidence: sp.conf ? Number(sp.conf) : undefined, q: sp.q,
     sort: (sp.sort as IssueFilters["sort"]) ?? "severity", page: sp.page ? Number(sp.page) : 1, pageSize: sp.size ? Number(sp.size) : 50,
   };
   const { rows, total, page, pageSize } = listIssues(user, filters);
@@ -68,6 +68,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
           {select("verification", "Verification", [["unverified", "Unverified"], ["confirmed", "Verified"], ["false_positive", "False positive"]])}
           {select("review", "Review status", [["pending", "Pending"], ["approved", "Approved"], ["revision_requested", "Revision requested"], ["rejected", "Rejected"]])}
           {select("assignee", "Assigned developer", [["none", "Unassigned"], ...people.map((p) => [p.id, p.name] as [string, string])])}
+          {select("provider", "Source", opts.providers.map((p) => [p, PROVIDER_LABEL[p] ?? p]))}
           {select("conf", "Min confidence", [["0.5", "50%+"], ["0.7", "70%+"], ["0.85", "85%+"]])}
           {select("sort", "Sort by", [["severity", "Severity"], ["confidence", "Confidence"], ["page", "Page"], ["code", "Issue ID"], ["updated", "Recently updated"]])}
         </div>
@@ -119,6 +120,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                     <td className="max-w-xs px-3 py-2">
                       <Link href={`/issues/${i.id}`} className="font-medium text-navy-900 hover:underline">{i.title}</Link>
                       {i.current_value && <div className="truncate text-xs text-slate-500">{i.current_value}</div>}
+                      {i.provider !== "webaudit" && <div className="text-[11px] text-accent-600">{PROVIDER_LABEL[i.provider] ?? i.provider}{i.metric_key ? ` · ${i.metric_key}` : ""}</div>}
                       {i.pages.length > 1 && <div className="text-xs text-sev-med">Shared · {i.pages.length} pages{i.instance_count > i.pages.length ? `, ${i.instance_count} instances` : ""}</div>}
                     </td>
                     <td className="px-3 py-2"><SeverityBadge severity={i.severity} /></td>

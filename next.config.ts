@@ -13,6 +13,11 @@ const config: NextConfig = {
   poweredByHeader: false,
   // The worker owns Playwright and ExcelJS; keep them out of the web bundle if ever imported.
   serverExternalPackages: ["playwright", "playwright-core", "exceljs", "@axe-core/playwright"],
+  // The engine (src/) uses NodeNext-style ".js" import suffixes for its TypeScript files.
+  webpack(config) {
+    config.resolve.extensionAlias = { ".js": [".ts", ".tsx", ".js"] };
+    return config;
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

@@ -5,6 +5,8 @@ import { startAuditAction } from "@/app/actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { Card, Empty, hint, input, label, PageHeader } from "@/components/ui";
 import { CATEGORIES, VIEWPORTS } from "@/components/constants";
+import { googleStatus } from "@/server/google/config";
+import { projectGoogle } from "@/server/google/service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "New Audit" };
@@ -25,6 +27,9 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
   }
 
   const s = selected.settings;
+  const gStatus = googleStatus();
+  const pg = projectGoogle(user, selected.id);
+  const gscReady = !!(pg.gsc_property && pg.connection_id);
   const viewports = s.viewports?.length ? s.viewports : VIEWPORTS;
   const categories = s.categories?.length ? s.categories : CATEGORIES.map((c) => c.value);
 
@@ -87,6 +92,21 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
                   <span><span className="font-medium">{c.label}</span><span className="block text-xs text-slate-500">{c.hint}</span></span>
                 </label>
               ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="rounded-md border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-medium text-slate-700">Google SEO & Performance (optional, runs after the crawl)</legend>
+            <p className="mb-2 text-xs text-slate-500">External Google services with quotas, so they are never run for every crawled page automatically. Results are linked to this audit.</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="psiMobile" disabled={!gStatus.apiKeyConfigured} /> PageSpeed Mobile</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="psiDesktop" disabled={!gStatus.apiKeyConfigured} /> PageSpeed Desktop</label>
+              <label className="flex items-center gap-2 text-sm">PageSpeed pages: <input type="number" name="psiMaxUrls" min={1} max={pg.psi_max_urls} defaultValue={Math.min(5, pg.psi_max_urls)} className={`${input} w-20 py-1`} /></label>
+              <span className="text-xs text-slate-500">{gStatus.apiKeyConfigured ? "Start page first, then other scanned pages." : "Needs a Google API key (Google Connections)."}</span>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="gscPerformance" disabled={!gscReady} /> Search Console data (last 28 days)</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="gscSitemaps" disabled={!gscReady} /> Search Console sitemaps</label>
+              <label className="flex items-center gap-2 text-sm">URL inspections: <input type="number" name="inspectMaxUrls" min={0} max={pg.inspection_max_urls} defaultValue={0} disabled={!gscReady} className={`${input} w-20 py-1`} /></label>
+              <span className="text-xs text-slate-500">{gscReady ? `Property ${pg.gsc_property}` : "Connect Search Console in Google Connections to enable."}</span>
             </div>
           </fieldset>
 

@@ -5,6 +5,8 @@ import { runsDir, dataDir } from "../server/db";
 import { finishRun, importResults, isCancelRequested, setRunDir, updateProgress, type RunSettings } from "../server/runs";
 import { runAudit, AuditCancelledError, type AuditProgress } from "../src/audit";
 import { envPolicy } from "../src/security/ssrf";
+import { queueGsc, queuePsi, presetRange } from "../server/google/service";
+import type { User } from "../server/auth";
 import type { Tokens } from "../src/types";
 
 const MAX_STORAGE_BYTES = Number(process.env.WEBAUDIT_MAX_STORAGE_GB ?? 20) * 1024 ** 3;
@@ -83,6 +85,7 @@ export async function processAudit(runId: string, log: (m: string) => void): Pro
     importResults(runId, result.issues, result.summary.pages, result.structured);
     const summary = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
     finishRun(runId, "completed", undefined, summary);
+    queueRunGoogleSteps(runId, settings, result.summary.pages, log);
     return "completed";
   } catch (e) {
     if (e instanceof AuditCancelledError) {
@@ -94,4 +97,23 @@ export async function processAudit(runId: string, log: (m: string) => void): Pro
     finishRun(runId, "failed", message);
     return "failed";
   }
+}
+
+/** Queues the optional Google steps chosen in the audit settings, as the user who started the audit. */
+function queueRunGoogleSteps(runId: string, settings: RunSettings, pages: { url: string; ok: boolean }[], log: (m: string) => void) {
+  const g = settings.google;
+  if (!g) return;
+  const r = get<{ project_id: string; created_by: string }>("SELECT project_id, created_by FROM audit_runs WHERE id = ?", runId)!;
+  const user = get<User>("SELECT id, email, name, role FROM users WHERE id = ?", r.created_by)!;
+  // The start page first, then the other successfully scanned pages.
+  const ok = pages.filter((p) => p.ok).map((p) => p.url);
+  const ordered = [...ok.filter((u) => u === settings.startUrl), ...ok.filter((u) => u !== settings.startUrl)];
+  const attempt = (label: string, fn: () => unknown) => {
+    try { fn(); } catch (e) { log(`Google step "${label}" not queued for ${runId}: ${(e as Error).message}`); }
+  };
+  const strategies = [g.psiMobile && "mobile", g.psiDesktop && "desktop"].filter(Boolean) as ("mobile" | "desktop")[];
+  if (strategies.length) attempt("PageSpeed", () => queuePsi(user, r.project_id, { urls: ordered.slice(0, g.psiMaxUrls ?? 5), strategies, runId, force: true }));
+  if (g.gscPerformance) attempt("Search Console performance", () => queueGsc(user, r.project_id, { kind: "performance", range: presetRange(28), runId }));
+  if (g.gscSitemaps) attempt("Sitemaps", () => queueGsc(user, r.project_id, { kind: "sitemaps", runId }));
+  if (g.inspectMaxUrls) attempt("URL inspection", () => queueGsc(user, r.project_id, { kind: "inspection", urls: ordered.slice(0, g.inspectMaxUrls), runId }));
 }

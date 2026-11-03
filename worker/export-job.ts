@@ -60,7 +60,7 @@ export async function processExport(exportId: string, log: (m: string) => void):
       body = JSON.stringify({
         generatedAt: d.generatedAt, generatedBy: d.generatedBy, filters: d.filters, project: d.project,
         run: { id: d.run.id, startUrl: d.run.start_url, createdAt: d.run.created_at, finishedAt: d.run.finished_at, settings: d.run.settings, summary: d.run.summary },
-        pages: d.pages, score: d.score,
+        pages: d.pages, score: d.score, google: d.google,
         issues: d.issues.map(({ evidence, ...i }) => ({ ...i, evidence: { ...evidence, viewUrl: `${d.appUrl}/issues/${i.id}` } })),
       }, null, 2);
     } else {

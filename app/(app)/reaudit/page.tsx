@@ -88,6 +88,12 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
                 {lastSettings.useSitemap !== false && <input type="hidden" name="useSitemap" value="on" />}
                 {(lastSettings.viewports ?? []).map((v) => <input key={v} type="hidden" name="viewports" value={v} />)}
                 {(lastSettings.categories ?? []).map((c) => <input key={c} type="hidden" name="categories" value={c} />)}
+                {lastSettings.google?.psiMobile && <input type="hidden" name="psiMobile" value="on" />}
+                {lastSettings.google?.psiDesktop && <input type="hidden" name="psiDesktop" value="on" />}
+                {lastSettings.google?.psiMaxUrls && <input type="hidden" name="psiMaxUrls" value={lastSettings.google.psiMaxUrls} />}
+                {lastSettings.google?.gscPerformance && <input type="hidden" name="gscPerformance" value="on" />}
+                {lastSettings.google?.gscSitemaps && <input type="hidden" name="gscSitemaps" value="on" />}
+                {lastSettings.google?.inspectMaxUrls ? <input type="hidden" name="inspectMaxUrls" value={lastSettings.google.inspectMaxUrls} /> : null}
                 <Submit>Run fresh audit with the same settings</Submit>
                 <span className="text-xs text-slate-500">Read-only. Uses the settings of the audit from {fmtDate(latest!.created_at)}.</span>
               </ActionForm>

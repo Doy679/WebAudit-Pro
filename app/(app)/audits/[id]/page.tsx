@@ -10,6 +10,8 @@ import { cancelAuditAction } from "@/app/actions";
 import { RunProgress } from "@/components/RunProgress";
 import { btn, Card, fmtDate, PageHeader, StatusPill } from "@/components/ui";
 import { TYPE_LABEL } from "@/components/constants";
+import { websiteHealth } from "@/server/health";
+import { WebsiteHealth } from "@/components/WebsiteHealth";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,8 @@ export default async function AuditPage({ params }: { params: Promise<{ id: stri
           createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, heartbeatAt: r.heartbeat_at,
         }}
       />
+
+      {r.status === "completed" && <div className="mt-6"><WebsiteHealth {...websiteHealth(user, r.project_id, id)} /></div>}
 
       {r.status === "completed" && (
         <div className="mt-6 grid gap-6 xl:grid-cols-3">

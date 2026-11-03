@@ -198,7 +198,8 @@ describe("WebAudit Pro end to end", () => {
     expect(xlsx.headers()["content-disposition"]).toMatch(/attachment; filename=".*\.xlsx"/);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await xlsx.body()) as unknown as ArrayBuffer);
-    expect(wb.worksheets).toHaveLength(8);
+    expect(wb.worksheets.slice(0, 8).map((w) => w.name)).toEqual(["Executive Overview", "All Issues", "Confirmed Issues", "Recommendations", "Needs Review", "Developer Action Tracker", "Pages Audited", "Audit Metadata"]);
+    expect(wb.worksheets).toHaveLength(17); // + 9 Google sheets (with "No data" rows when Google wasn't used)
     const ids = wb.getWorksheet("All Issues")!.getColumn(1).values.slice(2).map(String);
     expect(ids.some((id) => id.startsWith("LAY-"))).toBe(true);
 
@@ -309,6 +310,34 @@ describe("WebAudit Pro end to end", () => {
     await anonPage.goto(`${APP}/approve/not-a-real-token`);
     expect(await anonPage.getByTestId("portal-unavailable").count()).toBe(1);
     await anon.close();
+  });
+
+  it("Test 15: Google SEO & Performance shows real structured data and truthful integration states", async () => {
+    await page.goto(`${APP}/google?project=${projectId}`);
+    const health = page.getByTestId("website-health");
+    expect(await health.locator("[data-section=structured][data-state=ok]").count()).toBe(1);
+    expect(await health.locator("[data-section=visibility][data-state=not-connected]").count()).toBe(1);
+    expect(await health.locator("[data-section=performance][data-state=not-run]").count()).toBe(1);
+    await snap("google-overview");
+
+    await page.goto(`${APP}/google/connections?project=${projectId}`);
+    expect(await page.getByTestId("psi-status").innerText()).toMatch(/Not configured/);
+    expect(await page.getByTestId("oauth-status").innerText()).toMatch(/Not configured/);
+    await snap("google-connections");
+
+    await page.goto(`${APP}/google/structured-data?project=${projectId}&run=${runId}`);
+    const rrt = page.getByTestId("open-rrt").first();
+    expect(await rrt.getAttribute("href")).toMatch(/^https:\/\/search\.google\.com\/test\/rich-results\?url=http%3A%2F%2F127\.0\.0\.1/);
+    expect(await page.getByText("Event: Not eligible: missing or invalid required properties").count()).toBeGreaterThan(0);
+    await snap("google-structured-data");
+
+    await page.goto(`${APP}/google/pagespeed?project=${projectId}`);
+    expect(await page.getByText("PageSpeed Insights is not configured").count()).toBe(1);
+    await page.goto(`${APP}/issues?run=${runId}&provider=schema`);
+    expect(await page.getByText("Internal Schema Validator").count()).toBeGreaterThan(0);
+    await page.goto(`${APP}/audits/new?project=${projectId}`);
+    expect(await page.locator("input[name=psiMobile]").isDisabled()).toBe(true);
+    expect(await page.locator("input[name=gscPerformance]").isDisabled()).toBe(true);
   });
 
   it("Test 14: the audited website only ever received read-only requests", () => {

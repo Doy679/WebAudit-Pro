@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { claimNextJob, failOrphanedRuns, finishJob } from "../server/runs";
 import { processAudit } from "./audit-job";
 import { processExport } from "./export-job";
+import { claimGoogleTask, processGoogleTask } from "../server/google/service";
 
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
@@ -43,5 +44,19 @@ const orphaned = failOrphanedRuns();
 if (orphaned) log(`Marked ${orphaned} interrupted audit(s) as failed.`);
 log("Waiting for jobs…");
 
-// One audit at a time (bounded browser concurrency); exports run alongside so reports never wait for a long scan.
-await Promise.all([loop("audit", (id) => processAudit(id, log)), loop("export", (id) => processExport(id, log))]);
+/** Google requests: one at a time with a pause between them, to stay well inside API quotas. */
+async function googleLoop() {
+  while (!stopping) {
+    const id = claimGoogleTask();
+    if (!id) {
+      await sleep(POLL_MS);
+      continue;
+    }
+    const status = await processGoogleTask(id).catch((e) => { log(`google task ${id} crashed: ${(e as Error).message}`); return "failed"; });
+    log(`google task ${id} ${status}`);
+    await sleep(1000);
+  }
+}
+
+// One audit at a time (bounded browser concurrency); exports and Google requests run alongside.
+await Promise.all([loop("audit", (id) => processAudit(id, log)), loop("export", (id) => processExport(id, log)), googleLoop()]);

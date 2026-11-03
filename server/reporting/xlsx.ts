@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
 import type { ReportData, ReportIssue } from "./data";
 import { label, statusText } from "./data";
+import { addGoogleSheets } from "./xlsx-google";
 
 const NAVY = "FF0F1F3D";
 const SEV_FILL: Record<string, string> = { high: "FFFDECEA", medium: "FFFEF4E6", low: "FFEEF1F5" };
 
-interface Col { header: string; key: string; width: number; link?: boolean }
+export interface Col { header: string; key: string; width: number; link?: boolean }
 
 const ISSUE_COLS: Col[] = [
   { header: "Issue ID", key: "code", width: 11 },
@@ -25,7 +26,12 @@ const ISSUE_COLS: Col[] = [
   { header: "Status", key: "status", width: 26 },
   { header: "Assignee", key: "assignee", width: 16 },
   { header: "Notes", key: "notes", width: 40 },
+  { header: "Source", key: "source", width: 24 },
 ];
+
+const PROVIDER: Record<string, string> = {
+  webaudit: "WebAudit Pro", schema: "Internal Schema Validator", psi: "Google PageSpeed Insights", crux: "Chrome UX Report", gsc: "Google Search Console",
+};
 
 function issueRow(i: ReportIssue, d: ReportData) {
   return {
@@ -46,10 +52,11 @@ function issueRow(i: ReportIssue, d: ReportData) {
     status: statusText(i),
     assignee: i.assignee_name ?? "",
     notes: i.notes,
+    source: [PROVIDER[i.provider] ?? i.provider, i.metric_key, i.provider_ts && i.provider !== "webaudit" ? `as of ${i.provider_ts}` : ""].filter(Boolean).join(" · "),
   };
 }
 
-function styleTable(ws: ExcelJS.Worksheet, cols: Col[], rowCount: number) {
+export function styleTable(ws: ExcelJS.Worksheet, cols: Col[], rowCount: number) {
   const header = ws.getRow(1);
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
@@ -178,5 +185,6 @@ export async function buildXlsx(d: ReportData): Promise<Buffer> {
     ["Method", "Read-only: GET/HEAD requests only, robots.txt respected, no form submissions. Measurements from rendered DOM and computed CSS (Playwright); accessibility via axe-core."],
   ]);
 
+  addGoogleSheets(wb, d);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

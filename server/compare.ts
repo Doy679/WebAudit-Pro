@@ -14,6 +14,10 @@ export interface CompareIssue {
   kind: string;
   pages: string[];
   current: string | null;
+  /** webaudit | schema | psi | crux | gsc */
+  provider?: string;
+  /** Strategy or other provider key needed to decide coverage. */
+  providerKey?: string | null;
 }
 
 export interface CompareRow {
@@ -35,7 +39,14 @@ export interface CompareRow {
  * resolved if all its pages were scanned OK; otherwise it is "unable to verify".
  * `earlierFingerprints`: fingerprints seen in runs older than the base, used to detect reopened findings.
  */
-export function compareRuns(base: CompareIssue[], latest: CompareIssue[], latestOkPages: Set<string>, earlierFingerprints: Set<string>): CompareRow[] {
+export function compareRuns(
+  base: CompareIssue[],
+  latest: CompareIssue[],
+  latestOkPages: Set<string>,
+  earlierFingerprints: Set<string>,
+  /** Whether the source that produced this finding ran successfully for it in the newer audit (default: its pages were scanned OK). */
+  covered: (i: CompareIssue) => boolean = (i) => i.pages.every((p) => latestOkPages.has(p)),
+): CompareRow[] {
   const baseBy = new Map(base.map((i) => [i.fingerprint, i]));
   const latestBy = new Map(latest.map((i) => [i.fingerprint, i]));
   const rows: CompareRow[] = [];
@@ -46,7 +57,7 @@ export function compareRuns(base: CompareIssue[], latest: CompareIssue[], latest
       const changed = (b.current ?? "") !== (l.current ?? "");
       rows.push({ fingerprint: b.fingerprint, status: changed ? "changed" : "still_present", title: l.title, rule: l.rule, severity: l.severity, pages: l.pages, baseIssue: b, latestIssue: l, before: b.current, after: l.current });
     } else {
-      const verifiable = b.pages.every((p) => latestOkPages.has(p));
+      const verifiable = covered(b);
       rows.push({ fingerprint: b.fingerprint, status: verifiable ? "resolved" : "unable_to_verify", title: b.title, rule: b.rule, severity: b.severity, pages: b.pages, baseIssue: b, before: b.current, after: null });
     }
   }
@@ -62,9 +73,30 @@ export function compareRuns(base: CompareIssue[], latest: CompareIssue[], latest
 }
 
 const loadIssues = (runId: string) =>
-  all<{ id: string; code: string; fingerprint: string; title: string; rule: string; severity: string; kind: string; pages_json: string; current_value: string | null }>(
-    "SELECT id, code, fingerprint, title, rule, severity, kind, pages_json, current_value FROM issues WHERE run_id = ? AND verification_status != 'false_positive'", runId,
-  ).map((r) => ({ id: r.id, code: r.code, fingerprint: r.fingerprint, title: r.title, rule: r.rule, severity: r.severity, kind: r.kind, pages: JSON.parse(r.pages_json), current: r.current_value }));
+  all<{ id: string; code: string; fingerprint: string; title: string; rule: string; severity: string; kind: string; pages_json: string; current_value: string | null; provider: string; evidence_json: string }>(
+    "SELECT id, code, fingerprint, title, rule, severity, kind, pages_json, current_value, provider, evidence_json FROM issues WHERE run_id = ? AND verification_status != 'false_positive'", runId,
+  ).map((r) => ({
+    id: r.id, code: r.code, fingerprint: r.fingerprint, title: r.title, rule: r.rule, severity: r.severity, kind: r.kind, pages: JSON.parse(r.pages_json),
+    current: r.current_value, provider: r.provider, providerKey: (JSON.parse(r.evidence_json).computedCss?.strategy as string | undefined) ?? null,
+  }));
+
+/** For each provider, which findings the newer audit actually re-measured. */
+function coverage(latestRunId: string, okPages: Set<string>) {
+  const settings = JSON.parse(all<{ s: string }>("SELECT settings_json AS s FROM audit_runs WHERE id = ?", latestRunId)[0].s) as { categories?: string[] };
+  const schemaRan = !settings.categories?.length || settings.categories.includes("structured-data");
+  const psiOk = new Set(all<{ k: string }>("SELECT url || '|' || strategy AS k FROM psi_results WHERE run_id = ? AND status = 'ok'", latestRunId).map((r) => r.k));
+  const inspected = new Set(all<{ key: string }>("SELECT key FROM gsc_data WHERE run_id = ? AND kind = 'inspection' AND status = 'ok'", latestRunId).map((r) => r.key));
+  const sitemapsOk = all("SELECT 1 FROM gsc_data WHERE run_id = ? AND kind = 'sitemaps' AND status = 'ok'", latestRunId).length > 0;
+  return (i: CompareIssue) => {
+    const pagesOk = i.pages.every((p) => okPages.has(p));
+    switch (i.provider) {
+      case "psi": case "crux": return i.pages.every((p) => psiOk.has(`${p}|${i.providerKey}`));
+      case "gsc": return i.rule === "gsc:sitemap-errors" ? sitemapsOk : i.pages.every((p) => inspected.has(p));
+      case "schema": return schemaRan && pagesOk;
+      default: return pagesOk;
+    }
+  };
+}
 
 /** Compares two runs of the same project (access-checked). */
 export function compareProjectRuns(user: User, baseRunId: string, latestRunId: string) {
@@ -77,7 +109,7 @@ export function compareProjectRuns(user: User, baseRunId: string, latestRunId: s
     `SELECT DISTINCT i.fingerprint FROM issues i JOIN audit_runs r ON r.id = i.run_id
      WHERE r.project_id = ? AND r.created_at < ? AND i.verification_status != 'false_positive'`, base.project_id, base.created_at,
   ).map((r) => r.fingerprint));
-  const rows = compareRuns(loadIssues(baseRunId), loadIssues(latestRunId), okPages, earlier);
+  const rows = compareRuns(loadIssues(baseRunId), loadIssues(latestRunId), okPages, earlier, coverage(latestRunId, okPages));
   const counts = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {});
   return { base, latest, rows, counts };
 }

@@ -162,6 +162,10 @@ export async function startAuditAction(_: ActionState, fd: FormData): Promise<Ac
       viewports: fd.getAll("viewports").map(Number),
       categories: fd.getAll("categories").map(String),
       delayMs: num(fd, "delayMs"),
+      google: {
+        psiMobile: fd.get("psiMobile") === "on", psiDesktop: fd.get("psiDesktop") === "on", psiMaxUrls: num(fd, "psiMaxUrls"),
+        gscPerformance: fd.get("gscPerformance") === "on", gscSitemaps: fd.get("gscSitemaps") === "on", inspectMaxUrls: num(fd, "inspectMaxUrls"),
+      },
     });
     redirect(`/audits/${runId}`);
   });

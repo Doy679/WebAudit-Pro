@@ -68,12 +68,14 @@ describe("Excel report", () => {
     await wb.xlsx.readFile(row.file_path!);
     expect(wb.worksheets.map((w) => w.name)).toEqual([
       "Executive Overview", "All Issues", "Confirmed Issues", "Recommendations", "Needs Review", "Developer Action Tracker", "Pages Audited", "Audit Metadata",
+      "Google SEO Overview", "PageSpeed Mobile", "PageSpeed Desktop", "Performance Opportunities", "Core Web Vitals",
+      "Structured Data Findings", "Search Console Performance", "URL Inspection", "Sitemap Status",
     ]);
 
     const all = wb.getWorksheet("All Issues")!;
     const header = (all.getRow(1).values as unknown[]).slice(1);
     expect(header).toEqual(expect.arrayContaining(["Issue ID", "Page URL", "Category", "Severity", "Confidence", "Viewport", "Element / Selector",
-      "Current", "Proposed", "Recommended Fix", "Evidence Reference", "Status", "Assignee", "Notes"]));
+      "Current", "Proposed", "Recommended Fix", "Evidence Reference", "Status", "Assignee", "Notes", "Source"]));
     expect(all.getRow(1).font?.bold).toBe(true);
     expect(all.autoFilter).toBeTruthy();
     expect(all.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
@@ -101,6 +103,39 @@ describe("Excel report", () => {
     await wb.xlsx.readFile(row.file_path!);
     expect(wb.getWorksheet("All Issues")!.rowCount).toBe(2);
     expect(row.issue_count).toBe(1);
+  });
+});
+
+describe("Google data in reports", () => {
+  it("includes real PageSpeed numbers with units and timestamps, and says 'No data' where a source didn't run", async () => {
+    const { psiSample } = await import("./fixtures/google/psi-sample");
+    const { parsePsi } = await import("../server/google/psi");
+    const { run: exec, newId } = await import("../server/db");
+    const result = parsePsi(psiSample(), "mobile");
+    exec(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, analysis_ts, lighthouse_version, result_json) VALUES (?, (SELECT project_id FROM audit_runs WHERE id = ?), ?, ?, 'mobile', 'ok', ?, ?, ?, ?)`,
+      newId(), runId, runId, "https://capitalhomemortgage.com/loans/", "2026-11-03T05:00:00Z", result.analysisTimestamp, result.lighthouseVersion, JSON.stringify(result));
+    const row = await generate("xlsx");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(row.file_path!);
+    const mobile = wb.getWorksheet("PageSpeed Mobile")!;
+    const header = (mobile.getRow(1).values as unknown[]).slice(1);
+    const values = (mobile.getRow(2).values as unknown[]).slice(1);
+    const cell = (h: string) => values[header.indexOf(h)];
+    expect(cell("Performance")).toBe(42);
+    expect(cell("LCP (ms, lab)")).toBe(6230.4);
+    expect(cell("Analysed (UTC)")).toBe("2026-11-03T05:00:00.000Z");
+    expect(cell("Field LCP p75 (ms)")).toBe(3100);
+    expect(String((wb.getWorksheet("PageSpeed Desktop")!.getRow(2).values as unknown[])[1])).toMatch(/No data/);
+    expect(String((wb.getWorksheet("Search Console Performance")!.getRow(2).values as unknown[])[1])).toMatch(/No data: Search Console is not connected/);
+    const opp = wb.getWorksheet("Performance Opportunities")!.getColumn(3).values.slice(2);
+    expect(opp).toEqual(expect.arrayContaining(["render-blocking-insight", "image-delivery-insight"]));
+  });
+
+  it("adds a Google SEO & Performance section to the client report", async () => {
+    const html = readFileSync((await generate("html")).file_path!, "utf8");
+    expect(html).toContain("Google SEO &amp; Performance");
+    expect(html).toContain("Lighthouse lab");
+    expect(html).toMatch(/Search Console: not connected/);
   });
 });
 

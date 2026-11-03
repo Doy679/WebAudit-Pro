@@ -2,6 +2,7 @@ import { all, get } from "../db";
 import type { ExportFilters, ExportRow } from "../exports";
 import { qualityScore } from "../score";
 import { getSetting } from "../settings";
+import { loadGoogleReportData, type GoogleReportData } from "./google";
 
 export interface ReportIssue {
   id: string; code: string; type: string; rule: string; kind: string; severity: string; confidence: number; title: string;
@@ -11,6 +12,7 @@ export interface ReportIssue {
   verification_status: string; review_status: string; implementation_status: string; priority: string | null;
   assignee_name: string | null; notes: string; captured_at: string;
   client_decision: string | null; client_comment: string | null; client_name: string | null;
+  provider: string; metric_key: string | null; provider_ts: string | null; source_ref: string | null;
 }
 
 export interface ReportData {
@@ -25,6 +27,7 @@ export interface ReportData {
   issues: ReportIssue[];
   allIssueCount: number;
   score: ReturnType<typeof qualityScore>;
+  google: GoogleReportData;
 }
 
 const SEV = { high: 0, medium: 1, low: 2 } as Record<string, number>;
@@ -75,6 +78,7 @@ export function loadReportData(exp: ExportRow): ReportData {
     issues: applyFilters(everything, exp.filters),
     allIssueCount: everything.length,
     score: qualityScore(live, pagesRaw.filter((p) => p.ok).length, pagesRaw.length),
+    google: loadGoogleReportData(exp.project_id, exp.run_id),
   };
 }
 

@@ -14,6 +14,7 @@ export interface IssueFilters {
   review?: string;
   implementation?: string;
   assignee?: string; // user id or "none"
+  provider?: string;
   minConfidence?: number;
   q?: string;
   sort?: "severity" | "confidence" | "code" | "page" | "updated";
@@ -56,6 +57,11 @@ export interface IssueRow {
   updated_at: string;
   evidence: { screenshots: { viewport: number; path: string }[]; annotated?: string; boxes: { x: number; y: number; w: number; h: number }[]; computedCss?: Record<string, unknown>; capturedAt: string };
   client_decision: string | null;
+  /** webaudit (engine), schema (internal validator), psi, crux or gsc. */
+  provider: string;
+  source_ref: string | null;
+  provider_ts: string | null;
+  metric_key: string | null;
 }
 
 const SORTS: Record<NonNullable<IssueFilters["sort"]>, string> = {
@@ -91,6 +97,7 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   eq("i.verification_status", f.verification);
   eq("i.review_status", f.review);
   eq("i.implementation_status", f.implementation);
+  eq("i.provider", f.provider);
   if (f.url) { where.push("EXISTS (SELECT 1 FROM json_each(i.pages_json) WHERE value = ?)"); params.push(f.url); }
   if (f.viewport) { where.push("EXISTS (SELECT 1 FROM json_each(i.viewports_json) WHERE value = ?)"); params.push(f.viewport); }
   if (f.assignee === "none") where.push("i.assignee_id IS NULL");
@@ -98,9 +105,9 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   if (f.minConfidence) { where.push("i.confidence >= ?"); params.push(f.minConfidence); }
   if (f.ids?.length) { where.push(`i.id IN (${f.ids.map(() => "?").join(",")})`); params.push(...f.ids); }
   if (f.q?.trim()) {
-    where.push("(i.code LIKE ? OR i.title LIKE ? OR i.rule LIKE ? OR i.selector LIKE ? OR i.url LIKE ? OR i.current_value LIKE ? OR i.notes LIKE ?)");
+    where.push("(i.code LIKE ? OR i.title LIKE ? OR i.rule LIKE ? OR i.selector LIKE ? OR i.url LIKE ? OR i.current_value LIKE ? OR i.notes LIKE ? OR i.metric_key LIKE ?)");
     const like = `%${f.q.trim()}%`;
-    params.push(like, like, like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like);
   }
   const whereSql = where.join(" AND ");
   const total = get<{ n: number }>(`SELECT COUNT(*) AS n FROM issues i WHERE ${whereSql}`, ...params)!.n;
@@ -220,6 +227,7 @@ export function filterOptions(user: User, runId?: string) {
   const distinct = (col: string) => all<{ v: string }>(`SELECT DISTINCT ${col} AS v FROM issues i WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v);
   return {
     types: distinct("i.type"),
+    providers: distinct("i.provider"),
     pages: all<{ v: string }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(i.pages_json) j WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v),
     viewports: all<{ v: number }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(i.viewports_json) j WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v),
   };

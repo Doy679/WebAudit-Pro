@@ -36,6 +36,15 @@ describe("compareRuns", () => {
   });
 });
 
+describe("compareRuns with external providers", () => {
+  it("doesn't mark a PageSpeed finding resolved when PageSpeed was unavailable in the new audit", () => {
+    const base = [issue("psi-rb", ["https://e.com/a"], "Est savings 1,200 ms", { provider: "psi" }), issue("psi-img", ["https://e.com/a"], "840 KiB", { provider: "psi" })];
+    const covered = (i: CompareIssue) => i.fingerprint === "psi-img"; // only the image audit's URL+device was re-measured
+    const status = Object.fromEntries(compareRuns(base, [], new Set(["https://e.com/a"]), new Set(), covered).map((r) => [r.fingerprint, r.status]));
+    expect(status).toEqual({ "psi-rb": "unable_to_verify", "psi-img": "resolved" });
+  });
+});
+
 describe("qualityScore", () => {
   it("is 100 with no confirmed findings and full coverage", () => {
     expect(qualityScore([], 10, 10).score).toBe(100);

@@ -10,7 +10,7 @@ import { ActionForm, Submit } from "@/components/forms";
 import { EvidenceViewer, type Shot } from "@/components/EvidenceViewer";
 import { AiExplain } from "@/components/AiExplain";
 import { Card, cx, fmtDate, input, KindBadge, label, Notice, PageHeader, SeverityBadge, shortUrl, STATUS_LABEL, StatusPill } from "@/components/ui";
-import { TYPE_LABEL } from "@/components/constants";
+import { PROVIDER_LABEL, TYPE_LABEL } from "@/components/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -96,9 +96,25 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
             )}
           </Card>
 
-          <Card title="Screenshot evidence">
-            <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} />
-          </Card>
+          {i.provider !== "webaudit" && (
+            <Card title="Source">
+              <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm" data-testid="provider-info">
+                <dt className="text-slate-500">Provider</dt><dd>{PROVIDER_LABEL[i.provider] ?? i.provider}</dd>
+                {i.metric_key && <><dt className="text-slate-500">Original audit / metric</dt><dd className="font-mono text-xs">{i.metric_key}</dd></>}
+                {i.provider_ts && <><dt className="text-slate-500">Provider timestamp</dt><dd>{fmtDate(i.provider_ts)}</dd></>}
+                {i.source_ref && <><dt className="text-slate-500">Source</dt><dd className="break-all"><a href={i.source_ref} target="_blank" rel="noopener noreferrer" className="text-accent-600 underline">{i.source_ref}</a></dd></>}
+                <dt className="text-slate-500">Data basis</dt>
+                <dd>{i.provider === "gsc" ? "Google-indexed information (as of Google's last crawl), not a live test." : i.provider === "psi" || i.provider === "crux" ? (i.type === "cwv" ? "Real-user measurements (Chrome UX Report, 28 days)." : "Lighthouse lab measurement or estimate; varies between runs.") : "Internal check against Google's documented requirements; confirm with the Rich Results Test."}</dd>
+              </dl>
+              {typeof i.evidence.computedCss?.evidence === "string" && <pre className="mt-3 whitespace-pre-wrap rounded bg-slate-50 p-2 text-xs text-slate-700">{i.evidence.computedCss.evidence}</pre>}
+            </Card>
+          )}
+
+          {shots.length > 0 && (
+            <Card title="Screenshot evidence">
+              <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} />
+            </Card>
+          )}
 
           {i.pages.length > 1 && (
             <Card title={`Affected pages (${i.pages.length})`}>

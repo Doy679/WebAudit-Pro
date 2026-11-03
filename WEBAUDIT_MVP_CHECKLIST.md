@@ -59,6 +59,32 @@ Last verified: 2026-11-03. 125 unit/integration tests and 11 end-to-end tests pa
   - **Acceptance:** private expiring, revocable links; the client approves, rejects, requests revision and comments, with name, email, time, IP and user agent stored. Re-audit classifies New / Still present / Resolved / Reopened / Changed / Unable to verify, with before/after values and screenshots. Neither approval nor re-audit touches the website (E2E Test 14: the fixture site only ever received GET/HEAD).
   - **Limitations:** links are shared manually (no email sending). Rate limiting of client submissions is in-memory per process.
 
+## Google SEO & Performance suite (added 2026-11-03)
+
+The eight MVP milestones above are unchanged and re-verified: 183 unit/integration tests and 12 end-to-end tests pass after the Google work.
+
+- [ ] G1. PageSpeed Insights (mobile + desktop, lab vs field data, opportunities, history)
+  - **Status:** Blocked: needs a Google API key. Code complete and tested against Google's documented response format; **not yet verified against the live API** (the shared anonymous quota returned HTTP 429 on 2026-11-03).
+  - **Source files:** `server/google/psi.ts`, `server/google/crux.ts`, `server/google/service.ts`, `app/(app)/google/pagespeed/page.tsx`
+  - **Tests:** `test/google-psi.test.ts` (parsing, units, missing field data, opportunities, quota/key/page errors, retry), `test/google-service.test.ts` (scope, limits, cache, quota state, findings without duplicates)
+  - **To complete:** add the API key in Google Connections, run one URL, confirm scores match pagespeed.web.dev.
+- [x] G2. Structured data / Rich Results (internal validator + official test link)
+  - **Status:** Completed and Tested (internal validation; not an official Google verdict by design)
+  - **Source files:** `src/schema/*`, `src/capture/structured.browser.js`, `app/(app)/google/structured-data/page.tsx`
+  - **Tests:** `test/schema.test.ts`, `test/audit.integration.test.ts` (real browser extraction on the fixture site), E2E Test 15
+  - **Limitations:** rules cover Google's documented features as of the rules version (Article, Breadcrumb, Event, FAQ, Job posting, Local business, Organization, Product snippet, Recipe, Review snippet, Video). Microdata `itemref` is not supported. The visible-content check is text matching and flagged for human review.
+- [ ] G3. Search Console (OAuth, properties, performance, URL inspection, sitemaps, disconnect)
+  - **Status:** Blocked: needs a Google OAuth client and a Google account with access to the property. Code complete and tested with mocked Google responses; **no live Search Console data retrieved yet**.
+  - **Source files:** `server/google/gsc.ts`, `server/google/service.ts`, `app/api/google/oauth/*`, `app/(app)/google/{connections,search-console,inspection,sitemaps}/page.tsx`
+  - **Tests:** `test/google-gsc.test.ts` (scope, PKCE, token exchange/refresh/revoke, permission/quota/auth errors, property scope, findings), `test/google-service.test.ts` (state check, encrypted tokens, property binding rules, analytics + comparison, inspection limits, disconnect)
+  - **To complete:** create the OAuth client (redirect `http://localhost:3000/api/google/oauth/callback`), connect, select `sc-domain:capitalhomemortgage.com`, fetch 28 days, inspect one URL, list sitemaps.
+- [x] G4. Unified Website Health, Issue Finder sources, worker queue
+  - **Status:** Completed and Tested (with truthful "Not run / Not connected" states; populated Google areas await G1/G3 credentials)
+  - **Tests:** E2E Test 15 (health areas, source filter, disabled Google options when not configured)
+- [x] G5. Excel/PDF/HTML/JSON Google sections and history
+  - **Status:** Completed and Tested with stored data (9 extra Excel sheets, PDF section 10, history page, re-audit coverage rules)
+  - **Tests:** `test/reports.test.ts` (sheets, real numbers with units/timestamps, "No data" rows, PDF section), `test/compare.test.ts` (no "resolved" when the provider didn't re-measure), E2E Tests 8–9
+
 ## Additional features (section 4)
 - **AI recommendations:** done but optional. "Explain with AI" on findings (Claude API, `claude-opus-5-5`, server-side refusal fallback). The key is stored encrypted and AI output never changes findings. *Not tested against the live API: no key was available in this environment.*
 - **Design Standards Manager:** done. Per-project spacing scale, thresholds and recorded standards feed the engine and reports.

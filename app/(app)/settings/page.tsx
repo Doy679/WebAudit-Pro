@@ -65,6 +65,10 @@ export default async function SettingsPage() {
           </Card>
 
           <div className="space-y-6">
+            <Card title="Integrations">
+              <p className="text-sm text-slate-600">Google PageSpeed Insights, Chrome UX Report and Search Console credentials and connections.</p>
+              <a href="/google/connections" className="mt-2 inline-block text-sm text-accent-600 underline">Connect Google Search Console →</a>
+            </Card>
             <Card title="Report branding">
               <ActionForm action={saveBrandAction} className="space-y-3">
                 <div>

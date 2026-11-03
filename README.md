@@ -35,6 +35,25 @@ Production-style run: `npm run build` then `npm start` (also starts the worker).
 6. **Client Approvals**: release reviewed findings and copy the private link (shown once). The client decides on the link page.
 7. After fixes are deployed separately, **Re-Audit**: run a fresh scan and compare.
 
+## Google SEO & Performance
+Menu **Google SEO & Performance**: SEO Overview, PageSpeed Insights, Structured Data, Search Console Performance, URL Inspection, Sitemaps, Google Connections, SEO History & Reports.
+
+| Source | What you get | Needs |
+|---|---|---|
+| PageSpeed Insights API | Lighthouse lab scores (performance, accessibility, best practices, SEO), LCP/FCP/CLS/TBT/Speed Index, opportunities, diagnostics | Google API key with the PageSpeed Insights API enabled |
+| Chrome UX Report API (optional) | Real-user Core Web Vitals (p75, 28 days) independent of PageSpeed | Same key, Chrome UX Report API enabled, toggle in Google Connections |
+| Internal schema validator | JSON-LD / microdata / RDFa checked against Google's documented features, with **Open in Google Rich Results Test** | Nothing (runs in every audit with the Structured data category) |
+| Search Console API (read-only) | Clicks, impressions, CTR, position, top pages/queries, devices; URL Inspection (Google-indexed status); sitemaps | OAuth client + a Google account with access to the property |
+
+**One-time Google Cloud setup** (console.cloud.google.com):
+1. Enable **PageSpeed Insights API**, **Google Search Console API** and optionally **Chrome UX Report API**.
+2. Credentials → **API key** (restrict it to those APIs).
+3. **OAuth consent screen** (add your Google account as a test user while the app is in testing).
+4. Credentials → **OAuth client ID → Web application**, authorized redirect URI `http://localhost:3000/api/google/oauth/callback` (use your real URL in deployment).
+5. In WebAudit Pro: **Google SEO & Performance → Google Connections**, paste the key, client ID and secret (stored encrypted), then **Connect Google Search Console** and select the property for each website.
+
+Rules: only the `webmasters.readonly` scope is requested; tokens stay on the server, encrypted; nothing is submitted to Search Console. PageSpeed and URL inspection run only on pages you select, with per-project limits, caching (6 h), retries and quota handling. Google data is always shown with its source and timestamp, and missing data says "Not available" — never an estimate.
+
 ## Configuration (`.env.local`)
 | Variable | Purpose |
 |---|---|
@@ -43,6 +62,7 @@ Production-style run: `npm run build` then `npm start` (also starts the worker).
 | `WEBAUDIT_APP_URL` | Base URL for links in reports. Use `https://…` in deployment; this also turns on Secure cookies. |
 | `WEBAUDIT_BROWSER_CHANNEL` | `msedge` (default), `chrome`, or empty for bundled Chromium. |
 | `WEBAUDIT_MAX_STORAGE_GB` | New audits refuse to start above this data size (default 20). |
+| `GOOGLE_API_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Optional fallback for the Google credentials (Google Connections in the app is preferred). |
 | `WEBAUDIT_TEST_ALLOW_LOOPBACK` | **Tests only.** Allows auditing 127.0.0.1 fixture sites. Never set it in production. |
 
 Engine thresholds and the default crawl politeness live in `config/tokens.json`. Per-project design standards override them.

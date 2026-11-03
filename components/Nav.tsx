@@ -14,6 +14,7 @@ const ITEMS = [
   { href: "/reports", label: "Reports" },
   { href: "/approvals", label: "Client Approvals" },
   { href: "/reaudit", label: "Re-Audit" },
+  { href: "/google", label: "Google SEO & Performance" },
   { href: "/settings", label: "Settings" },
 ];
 

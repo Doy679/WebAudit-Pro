@@ -17,6 +17,8 @@ export interface RunSettings {
   viewports?: number[];
   categories?: string[];
   delayMs?: number;
+  /** Optional Google steps queued after the crawl completes (external services; never automatic for every URL). */
+  google?: { psiMobile?: boolean; psiDesktop?: boolean; psiMaxUrls?: number; gscPerformance?: boolean; gscSitemaps?: boolean; inspectMaxUrls?: number };
 }
 
 export interface AuditRun {
@@ -64,7 +66,14 @@ export function normalizeSettings(projectDomain: string, s: RunSettings): RunSet
   if (!viewports.length) throw new Error("Choose at least one viewport width between 240 and 2560px.");
   const maxPages = Math.min(Math.max(1, Math.floor(s.maxPages ?? 20)), MAX_PAGES_LIMIT);
   const delayMs = Math.min(Math.max(500, Math.floor(s.delayMs ?? 1000)), 10_000); // never faster than 2 page loads/second
-  return { startUrl: s.startUrl, maxPages, useSitemap: s.useSitemap ?? true, urls, viewports, categories: s.categories, delayMs };
+  const g = s.google;
+  const google = g && (g.psiMobile || g.psiDesktop || g.gscPerformance || g.gscSitemaps || (g.inspectMaxUrls ?? 0) > 0)
+    ? {
+        psiMobile: !!g.psiMobile, psiDesktop: !!g.psiDesktop, psiMaxUrls: Math.min(Math.max(Math.floor(g.psiMaxUrls ?? 5), 1), 50),
+        gscPerformance: !!g.gscPerformance, gscSitemaps: !!g.gscSitemaps, inspectMaxUrls: Math.min(Math.max(Math.floor(g.inspectMaxUrls ?? 0), 0), 200),
+      }
+    : undefined;
+  return { startUrl: s.startUrl, maxPages, useSitemap: s.useSitemap ?? true, urls, viewports, categories: s.categories, delayMs, google };
 }
 
 /** Creates a pending run and queues its job (no network checks; see createAuditRun). */
@@ -172,6 +181,7 @@ export function failOrphanedRuns(): number {
     run("UPDATE jobs SET status = 'failed', finished_at = ?, error = 'interrupted' WHERE ref_id = ? AND status = 'running'", now(), o.id);
   }
   run("UPDATE jobs SET status = 'pending', started_at = NULL WHERE type = 'export' AND status = 'running'");
+  run("UPDATE google_tasks SET status = 'pending', started_at = NULL WHERE status = 'running'");
   return orphans.length;
 }
 

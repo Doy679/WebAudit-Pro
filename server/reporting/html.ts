@@ -1,5 +1,6 @@
 import type { ReportData, ReportIssue } from "./data";
 import { label, statusText } from "./data";
+import { googleSection } from "./html-google";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "");
@@ -153,7 +154,9 @@ ${decided.length ? `<table><tr><th>Finding</th><th>Decision</th><th>By</th><th>C
 ${decided.map((i) => `<tr><td>${esc(i.code)}: ${esc(i.title)}</td><td>${esc(label(i.client_decision))}</td><td>${esc(i.client_name ?? "")}</td><td>${esc(i.client_comment ?? "")}</td></tr>`).join("")}</table>`
     : "<p>No client decisions have been recorded for these findings yet. Decisions are collected through a private approval link.</p>"}
 
-<h2>10. Methodology and limitations</h2>
+${googleSection(d)}
+
+<h2>11. Methodology and limitations</h2>
 <ul>
   <li>Pages are rendered in a real browser at each width; element sizes and computed styles are measured from the rendered page. Accessibility checks use axe-core (WCAG 2.1 A/AA rules).</li>
   <li><strong>Confirmed</strong> findings are measured facts (e.g. a tap target 20px tall). <strong>Recommendations</strong> are design improvements based on approved tokens or the site's own patterns. <strong>Needs review</strong> findings are uncertain and require human judgement.</li>
@@ -162,18 +165,18 @@ ${decided.map((i) => `<tr><td>${esc(i.code)}: ${esc(i.title)}</td><td>${esc(labe
   <li>Proposed values are suggestions derived from measurements; nothing is applied to the website automatically.</li>
 </ul>
 
-<h2>11. Next steps</h2>
+<h2>12. Next steps</h2>
 <ol class="steps">
   <li>Review the highlighted findings and record your decisions through the approval link.</li>
   <li>Our developers implement the approved changes in a separate, authorized workflow.</li>
   <li>We run a fresh read-only audit and report what is resolved, still present or new.</li>
 </ol>
 
-${appendix.length ? `<section class="appendix"><h2>12. Technical appendix</h2>
+${appendix.length ? `<section class="appendix"><h2>13. Technical appendix</h2>
 <p class="note">All other findings in scope, including recommendations and findings that still need human review. Status shows our internal review state.</p>
 <table><tr><th>ID</th><th>Finding</th><th>Severity</th><th>Classification</th><th>Page</th><th>Current</th><th>Status</th></tr>
 ${appendix.map((i) => `<tr><td>${esc(i.code)}</td><td>${esc(i.title)}</td><td>${label(i.severity)}</td><td>${label(i.kind)}</td><td>${esc(i.url)}${i.pages.length > 1 ? ` (+${i.pages.length - 1})` : ""}</td><td>${esc(i.current_value ?? "")}</td><td>${esc(statusText(i))}</td></tr>`).join("")}
-</table></section>` : "<h2>12. Technical appendix</h2><p>No additional findings.</p>"}
+</table></section>` : "<h2>13. Technical appendix</h2><p>No additional findings.</p>"}
 
 </main></body></html>`;
 }
