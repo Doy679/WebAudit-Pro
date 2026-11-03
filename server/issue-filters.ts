@@ -12,6 +12,24 @@ const PROVIDER = ["webaudit", "schema", "psi", "crux", "gsc"];
 const TYPE = /^[a-z][a-z0-9-]{1,30}$/;
 const ID = /^[0-9a-f-]{36}$|^none$/i;
 
+/** Quick filter chips on the Issues page, in display order. */
+export const QUICK_FILTERS = [
+  { key: "all", label: "All issues" },
+  { key: "high", label: "High priority" },
+  { key: "mobile", label: "Mobile" },
+  { key: "desktop", label: "Desktop" },
+  { key: "a11y", label: "Accessibility" },
+  { key: "seo", label: "SEO" },
+  { key: "layout", label: "Layout & spacing" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "review", label: "Needs review" },
+  { key: "client", label: "Awaiting client" },
+] as const;
+const QUICK = QUICK_FILTERS.map((q) => q.key).filter((k) => k !== "all");
+
+/** URL parameters that make up a filter (what a saved view may store). */
+export const FILTER_PARAMS = ["q", "project", "run", "url", "type", "severity", "viewport", "kind", "verification", "review", "implementation", "assignee", "provider", "quick", "conf", "sort", "size"];
+
 type Params = Record<string, string | string[] | undefined>;
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
@@ -38,6 +56,7 @@ export function parseIssueSearchParams(sp: Params): IssueFilters {
     implementation: pick(g("implementation"), IMPLEMENTATION),
     assignee: g("assignee") && ID.test(g("assignee")!) ? g("assignee") : undefined,
     provider: pick(g("provider"), PROVIDER),
+    quick: pick(g("quick"), QUICK),
     minConfidence: conf && conf > 0 ? conf : undefined,
     sort: (pick(g("sort"), SORTS) as IssueFilters["sort"]) ?? "severity",
     page: Math.max(int(g("page"), 1, 100_000) ?? 1, 1),

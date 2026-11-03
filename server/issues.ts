@@ -15,6 +15,7 @@ export interface IssueFilters {
   implementation?: string;
   assignee?: string; // user id or "none"
   provider?: string;
+  quick?: string;
   minConfidence?: number;
   q?: string;
   sort?: "severity" | "confidence" | "code" | "page" | "updated";
@@ -107,6 +108,21 @@ const LIST_COLUMNS = `i.id, i.run_id, i.project_id, i.code, i.fingerprint, i.typ
   i.recommendation, i.evidence_json, i.captured_at, i.verification_status, i.review_status, i.implementation_status, i.priority,
   i.assignee_id, i.notes, i.updated_at, i.provider, i.source_ref, i.provider_ts, i.metric_key`;
 
+// Quick filters (Issues page chips). Fixed SQL fragments, chosen by a whitelisted key.
+const QUICK_SQL = {
+  high: "i.severity = 'high'",
+  mobile: `EXISTS (SELECT 1 FROM json_each(${jsonArray("i.viewports_json")}) WHERE value < 768)`,
+  desktop: `EXISTS (SELECT 1 FROM json_each(${jsonArray("i.viewports_json")}) WHERE value >= 1024)`,
+  a11y: "i.type = 'a11y'",
+  seo: "i.type IN ('seo', 'structured-data', 'indexing', 'search-console')",
+  layout: "i.type IN ('layout', 'spacing')",
+  confirmed: "i.kind = 'confirmed'",
+  review: "i.kind = 'needs-review'",
+  // Released to a client in a package that wasn't revoked, and no client decision yet.
+  client: `EXISTS (SELECT 1 FROM approval_items ai JOIN approval_packages ap ON ap.id = ai.package_id WHERE ai.issue_id = i.id AND ap.revoked_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM client_decisions d WHERE d.issue_id = i.id)`,
+};
+
 export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; total: number; page: number; pageSize: number } {
   const scope = projectScope(user, "i.project_id");
   const where = [scope.sql];
@@ -126,6 +142,8 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   if (f.viewport) { where.push(`EXISTS (SELECT 1 FROM json_each(${jsonArray("i.viewports_json")}) WHERE value = ?)`); params.push(f.viewport); }
   if (f.assignee === "none") where.push("i.assignee_id IS NULL");
   else eq("i.assignee_id", f.assignee);
+  const quick = QUICK_SQL[f.quick as keyof typeof QUICK_SQL];
+  if (quick) where.push(quick);
   if (f.minConfidence) { where.push("i.confidence >= ?"); params.push(f.minConfidence); }
   if (f.ids?.length) { where.push(`i.id IN (${f.ids.map(() => "?").join(",")})`); params.push(...f.ids); }
   if (f.q?.trim()) {

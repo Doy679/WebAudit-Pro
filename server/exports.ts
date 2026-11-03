@@ -67,3 +67,19 @@ export function markExport(id: string, patch: { status: ExportRow["status"]; fil
     patch.status, patch.file_path ?? null, patch.file_name ?? null, patch.size_bytes ?? null, patch.issue_count ?? null,
     patch.error ?? null, patch.status, now(), id);
 }
+
+/** What a report with these options will contain (same rules as the report itself), for the Reports preview. */
+export function exportPreview(user: User, runId: string, f: ExportFilters): { total: number; high: number; medium: number; low: number } {
+  getRun(user, runId); // access check: NotFoundError for outsiders
+  const where = ["run_id = ?"];
+  const params: unknown[] = [runId];
+  const eq = (col: string, v?: string) => { if (v) { where.push(`${col} = ?`); params.push(v); } };
+  eq("kind", f.kind); eq("severity", f.severity); eq("type", f.type);
+  if (f.excludeFalsePositives !== false) where.push("verification_status != 'false_positive'");
+  if (f.reviewedOnly) where.push("(verification_status = 'confirmed' OR review_status = 'approved')");
+  if (f.ids?.length) { where.push(`id IN (${f.ids.map(() => "?").join(",")})`); params.push(...f.ids); }
+  const r = get<{ total: number; high: number; medium: number; low: number }>(
+    `SELECT COUNT(*) AS total, COALESCE(SUM(severity = 'high'), 0) AS high, COALESCE(SUM(severity = 'medium'), 0) AS medium, COALESCE(SUM(severity = 'low'), 0) AS low
+     FROM issues WHERE ${where.join(" AND ")}`, ...params)!;
+  return { total: r.total, high: r.high, medium: r.medium, low: r.low };
+}

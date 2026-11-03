@@ -47,9 +47,9 @@ export interface WorkerStatus { state: WorkerState; label: string; detail: strin
 
 export function workerStatus(): WorkerStatus {
   const r = latest();
-  if (!r) return { state: "offline", label: "Worker offline", detail: "The audit worker isn't running. Start the app with `npm run dev` (web + worker), or `npm run worker` in a second terminal.", lastHeartbeat: null, pid: null, currentRun: null };
+  if (!r) return { state: "offline", label: "Worker offline", detail: "The audit worker isn't running. Start the app with `npm start` (web and worker together). Your queued audits are kept and start automatically.", lastHeartbeat: null, pid: null, currentRun: null };
   const base = { lastHeartbeat: r.heartbeat_at, pid: r.pid, currentRun: r.current_run };
-  if (!fresh(r)) return { ...base, state: "stale", label: "No recent heartbeat", detail: `The worker last reported ${Math.round((Date.now() - Date.parse(r.heartbeat_at)) / 1000)} s ago. It has probably stopped; restart it with \`npm run dev\` or \`npm run worker\`.` };
+  if (!fresh(r)) return { ...base, state: "stale", label: "No recent heartbeat", detail: `The worker last reported ${Math.round((Date.now() - Date.parse(r.heartbeat_at)) / 1000)} s ago. It has probably stopped; restart the app with \`npm start\`. Queued audits are kept.` };
   if (r.status === "starting") return { ...base, state: "starting", label: "Worker starting", detail: "The worker is starting and recovering queued audits." };
   if (r.current_run) {
     const a = get<{ heartbeat_at: string | null; status: string }>("SELECT heartbeat_at, status FROM audit_runs WHERE id = ?", r.current_run);

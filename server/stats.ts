@@ -21,6 +21,11 @@ export function overviewStats(user: User) {
     recommendations: n(`SELECT COUNT(*) AS n FROM issues WHERE ${live} AND kind = 'recommendation'`, ...latestParams),
     needsReview: n(`SELECT COUNT(*) AS n FROM issues WHERE ${live} AND kind = 'needs-review'`, ...latestParams),
     highPriority: n(`SELECT COUNT(*) AS n FROM issues WHERE ${live} AND (severity = 'high' OR priority = 'high')`, ...latestParams),
+    reportsReady: n(`SELECT COUNT(*) AS n FROM exports WHERE status = 'completed' AND ${r.sql}`, ...r.params),
+    // Findings released to a client (package not revoked) that have no client decision yet.
+    awaitingClient: n(`SELECT COUNT(*) AS n FROM issues i WHERE i.run_id IN (${latest}) AND i.verification_status != 'false_positive'
+      AND EXISTS (SELECT 1 FROM approval_items ai JOIN approval_packages ap ON ap.id = ai.package_id WHERE ai.issue_id = i.id AND ap.revoked_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM client_decisions d WHERE d.issue_id = i.id)`, ...latestParams),
     pendingApprovals: n(
       `SELECT COUNT(*) AS n FROM approval_packages WHERE ${r.sql} AND revoked_at IS NULL AND submitted_at IS NULL AND expires_at > ?`,
       ...r.params, new Date().toISOString()),
@@ -48,4 +53,28 @@ export function recentActivity(user: User, limit = 12): ActivityItem[] {
   }));
 
   return [...audits, ...events].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+}
+
+export interface WebsiteSummary {
+  id: string; name: string; domain: string;
+  lastRunId: string | null; lastAuditAt: string | null; findings: number; high: number; needsReview: number;
+  active: { id: string; status: string; pages_done: number; pages_total: number } | null;
+}
+
+/** One row per website for the dashboard: latest completed audit counts (excluding false positives) and any audit in progress. */
+export function websiteSummaries(user: User): WebsiteSummary[] {
+  const s = projectScope(user, "p.id");
+  const rows = all<Omit<WebsiteSummary, "active"> & { active_id: string | null }>(
+    `SELECT p.id, p.name, p.domain, lr.id AS lastRunId, lr.finished_at AS lastAuditAt,
+       (SELECT COUNT(*) FROM issues i WHERE i.run_id = lr.id AND i.verification_status != 'false_positive') AS findings,
+       (SELECT COUNT(*) FROM issues i WHERE i.run_id = lr.id AND i.verification_status != 'false_positive' AND i.severity = 'high') AS high,
+       (SELECT COUNT(*) FROM issues i WHERE i.run_id = lr.id AND i.kind = 'needs-review' AND i.verification_status = 'unverified') AS needsReview,
+       (SELECT id FROM audit_runs a WHERE a.project_id = p.id AND a.status IN ('pending','running') ORDER BY a.created_at DESC LIMIT 1) AS active_id
+     FROM projects p
+     LEFT JOIN audit_runs lr ON lr.id = (SELECT id FROM audit_runs ar WHERE ar.project_id = p.id AND ar.status = 'completed' ORDER BY ar.created_at DESC LIMIT 1)
+     WHERE ${s.sql} ORDER BY COALESCE(lr.finished_at, p.created_at) DESC`, ...s.params);
+  return rows.map(({ active_id, ...r }) => ({
+    ...r,
+    active: active_id ? get<WebsiteSummary["active"]>("SELECT id, status, pages_done, pages_total FROM audit_runs WHERE id = ?", active_id) ?? null : null,
+  }));
 }

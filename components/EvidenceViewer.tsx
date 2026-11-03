@@ -17,56 +17,64 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
   const [mode, setMode] = useState<"crop" | number>(annotated ? "crop" : shots[0]?.viewport ?? "crop");
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [zoom, setZoom] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const shot = typeof mode === "number" ? shots.find((s) => s.viewport === mode) : undefined;
 
-  useEffect(() => { setNatural(null); setFailed(false); }, [mode]);
+  useEffect(() => { setNatural(null); setFailed(false); setZoom(false); }, [mode]);
 
   useEffect(() => {
     if (!shot || !natural || !scroller.current) return;
     const first = shot.boxes[0];
     if (!first) return;
-    const scale = scroller.current.clientWidth / natural.w;
+    const scale = zoom ? 1 : scroller.current.clientWidth / natural.w;
     scroller.current.scrollTop = Math.max(0, first.y * scale - 80);
-  }, [shot, natural]);
+    if (zoom) scroller.current.scrollLeft = Math.max(0, first.x - 40);
+  }, [shot, natural, zoom]);
 
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-1">
-      <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Screenshot view">
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Screenshot view">
         {annotated && (
-          <button type="button" role="tab" aria-selected={mode === "crop"} onClick={() => setMode("crop")}
-            className={cx("rounded px-2 py-1 text-xs font-medium", mode === "crop" ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700")}>
+          <button type="button" aria-pressed={mode === "crop"} onClick={() => setMode("crop")}
+            className={cx("rounded px-2.5 py-1.5 text-xs font-medium", mode === "crop" ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700")}>
             Highlighted crop
           </button>
         )}
         {shots.map((s) => (
-          <button key={s.viewport} type="button" role="tab" aria-selected={mode === s.viewport} onClick={() => setMode(s.viewport)}
-            className={cx("rounded px-2 py-1 text-xs font-medium", mode === s.viewport ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700")}>
+          <button key={s.viewport} type="button" aria-pressed={mode === s.viewport} onClick={() => setMode(s.viewport)}
+            className={cx("rounded px-2.5 py-1.5 text-xs font-medium", mode === s.viewport ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700")}>
             {s.viewport}px full page
           </button>
         ))}
       </div>
+        {shot && natural && natural.w > 0 && (
+          <button type="button" aria-pressed={zoom} onClick={() => setZoom(!zoom)} className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50">
+            {zoom ? "Fit to width" : "Zoom to actual size"}
+          </button>
+        )}
         <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-accent-600 underline">Open audited page ↗</a>
       </div>
 
       {failed && <p className="rounded bg-sev-med-bg p-3 text-sm text-sev-med">The saved screenshot file could not be loaded.</p>}
 
       {mode === "crop" && annotated && !failed && (
-        <a href={annotated} target="_blank" rel="noopener noreferrer">
+        <a href={annotated} target="_blank" rel="noopener noreferrer" title="Open the image at full size in a new tab">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={annotated} alt="Annotated screenshot with the affected element outlined in red" className="mx-auto block h-auto max-w-full rounded border border-slate-200" onError={() => setFailed(true)} data-testid="evidence-image" />
         </a>
       )}
 
       {shot && !failed && (
-        <div ref={scroller} className="max-h-[70vh] overflow-auto rounded border border-slate-200 bg-slate-50">
-          <div className="relative" style={{ width: "100%" }}>
+        <div ref={scroller} className="max-h-[70vh] overflow-auto rounded border border-slate-200 bg-slate-50" tabIndex={0} aria-label={`Scrollable screenshot at ${shot.viewport}px`}>
+          <div className="relative" style={{ width: zoom && natural ? natural.w : "100%" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={shot.src}
               alt={`Full-page screenshot at ${shot.viewport}px`}
               className="block w-full"
+              loading="lazy"
               onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
               onError={() => setFailed(true)}
               data-testid="evidence-image"
@@ -81,6 +89,7 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
           </div>
         </div>
       )}
+      {mode === "crop" && annotated && <p className="mt-1 text-xs text-slate-500">Click the image to open it at full size.</p>}
       {shot && shot.boxes.length === 0 && <p className="mt-1 text-xs text-slate-500">Page-level finding: no single element to highlight at this width.</p>}
     </div>
   );

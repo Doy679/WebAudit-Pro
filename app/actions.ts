@@ -5,6 +5,8 @@ import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { authenticate, changePassword, createSession, createUser, destroySession, resetPassword, setUserDisabled, userCount, ROLES, type Role } from "@/server/auth";
 import { backupDatabase } from "@/server/backup";
+import { deleteView, saveView } from "@/server/saved-views";
+import { dismissOnboarding } from "@/server/onboarding";
 import { addMember, createProject, removeMember, updateProject, type ProjectSettings } from "@/server/projects";
 import { ActiveAuditError, createAuditRun, requestCancel } from "@/server/runs";
 import { bulkReview, reviewIssue, type ReviewAction } from "@/server/issues";
@@ -372,4 +374,26 @@ export async function explainIssueAction(_: ExplainState, fd: FormData): Promise
     unstable_rethrow(e);
     return { error: (e as Error).message };
   }
+}
+
+// ---- Per-user UI: saved Issues views and the Getting started checklist ----
+
+export async function saveViewAction(fd: FormData) {
+  const user = await requireUser();
+  const query = str(fd, "query");
+  const v = saveView(user, str(fd, "name") || "My view", query);
+  redirect(`/issues?${v.query}`);
+}
+
+export async function deleteViewAction(fd: FormData) {
+  const user = await requireUser();
+  deleteView(user, str(fd, "viewId"));
+  revalidatePath("/issues");
+}
+
+export async function setOnboardingAction(fd: FormData) {
+  const user = await requireUser();
+  dismissOnboarding(user, str(fd, "show") !== "1");
+  revalidatePath("/");
+  if (str(fd, "show") === "1") redirect("/");
 }

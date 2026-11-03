@@ -76,7 +76,7 @@ export interface PackageView {
   status: PackageStatus;
   package?: { id: string; title: string; message: string; expires_at: string; submitted_at: string | null; project_name: string; base_url: string; run_created_at: string };
   issues: {
-    id: string; code: string; title: string; severity: string; kind: string; url: string; pages: string[]; viewports: number[];
+    id: string; code: string; title: string; severity: string; kind: string; rule: string; type: string; url: string; pages: string[]; viewports: number[];
     current_value: string | null; proposed_value: string | null; recommendation: string; shared_template: number; run_id: string;
     evidence: { annotated?: string; screenshots: { viewport: number; path: string }[] };
     decision: { decision: string; comment: string } | null;
@@ -93,7 +93,7 @@ export function openPackage(token: string): PackageView {
   if (p.revoked_at) return { status: "revoked", issues: [] };
   if (p.expires_at < now()) return { status: "expired", issues: [] };
   const issues = all<Record<string, unknown>>(
-    `SELECT i.id, i.code, i.title, i.severity, i.kind, i.url, i.pages_json, i.viewports_json, i.current_value, i.proposed_value,
+    `SELECT i.id, i.code, i.title, i.severity, i.kind, i.rule, i.type, i.url, i.pages_json, i.viewports_json, i.current_value, i.proposed_value,
        i.recommendation, i.shared_template, i.run_id, i.evidence_json,
        (SELECT d.decision || '|' || d.comment FROM client_decisions d WHERE d.issue_id = i.id AND d.package_id = ? ORDER BY d.created_at DESC LIMIT 1) AS last
      FROM approval_items ai JOIN issues i ON i.id = ai.issue_id WHERE ai.package_id = ?
@@ -103,6 +103,7 @@ export function openPackage(token: string): PackageView {
     const last = r.last as string | null;
     return {
       id: r.id as string, code: r.code as string, title: r.title as string, severity: r.severity as string, kind: r.kind as string,
+      rule: r.rule as string, type: r.type as string,
       url: r.url as string, pages: JSON.parse(r.pages_json as string), viewports: JSON.parse(r.viewports_json as string),
       current_value: r.current_value as string | null, proposed_value: r.proposed_value as string | null,
       recommendation: r.recommendation as string, shared_template: r.shared_template as number, run_id: r.run_id as string,

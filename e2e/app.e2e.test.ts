@@ -134,6 +134,7 @@ describe("WebAudit Pro end to end", () => {
   it("Tests 2–3: starts a real audit and shows persistent progress across a reload", async () => {
     await page.goto(`${APP}/audits/new?project=${projectId}`);
     expect(await page.getByLabel("Website URL").inputValue()).toBe(`${site.origin}/`);
+    await page.getByText("Advanced settings (optional)").click();
     await page.getByLabel("Maximum pages").fill("5");
     await page.getByLabel("Scan rate: delay between page loads (ms)").fill("500");
     for (const vw of ["320px", "768px", "1024px"]) await page.getByLabel(vw, { exact: true }).uncheck();
@@ -160,8 +161,8 @@ describe("WebAudit Pro end to end", () => {
   it("Tests 4–6: opens results, the screenshot evidence and Current vs Proposed", async () => {
     await page.goto(`${APP}/issues?run=${runId}&q=Page%20scrolls`);
     await page.getByRole("link", { name: "Page scrolls sideways" }).first().click();
-    await page.waitForURL(/\/issues\/[0-9a-f-]{36}$/);
-    issueUrl = page.url();
+    await page.waitForURL(/\/issues\/[0-9a-f-]{36}\?from=/);
+    issueUrl = page.url().split("?")[0];
     issueId = issueUrl.split("/").pop()!;
 
     expect(await page.getByTestId("current-value").innerText()).toMatch(/document width \d+px at 390px viewport/);
@@ -171,7 +172,7 @@ describe("WebAudit Pro end to end", () => {
     await page.waitForFunction((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0, await img.elementHandle());
     evidenceSrc = (await img.getAttribute("src"))!;
     expect(evidenceSrc).toContain(`/api/evidence/${runId}/annotated/`);
-    await page.getByRole("tab", { name: "390px full page" }).click();
+    await page.getByRole("button", { name: "390px full page" }).click();
     expect(await page.locator("img[alt='Full-page screenshot at 390px']").count()).toBe(1);
     await page.goto(issueUrl);
     await snap("issue-detail");
@@ -250,6 +251,9 @@ describe("WebAudit Pro end to end", () => {
     const shot = portal.locator("[data-testid=portal-finding] img").first();
     await portal.waitForFunction((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0, await shot.elementHandle());
     await snap("client-portal", portal);
+    expect(await portal.getByText("Approving does not change your website.").count()).toBe(1);
+    expect(await portal.getByText("Expected benefit:").count()).toBe(1);
+    expect(await portal.getByText("Awaiting your decision").count()).toBe(1);
     await portal.getByLabel("Approve").check();
     await portal.locator("textarea[name^='comment:']").fill("Please fix on mobile");
     await portal.getByLabel("Your name").fill("Client E2E");
@@ -292,6 +296,7 @@ describe("WebAudit Pro end to end", () => {
 
   it("Test 3b: cancels a running audit from the progress page", async () => {
     await page.goto(`${APP}/audits/new?project=${projectId}`);
+    await page.getByText("Advanced settings (optional)").click();
     await page.getByLabel("Scan rate: delay between page loads (ms)").fill("3000"); // slow, so there is time to cancel
     await page.getByRole("button", { name: "Start Audit" }).click();
     await page.waitForURL(/\/audits\/[0-9a-f-]{36}$/);
@@ -321,9 +326,10 @@ describe("WebAudit Pro end to end", () => {
     await qa.getByRole("button", { name: "Sign in" }).click();
     await qa.waitForURL(`${APP}/`);
     await qa.goto(`${APP}/issues`);
-    expect(await qa.getByText("No findings match these filters").count()).toBe(1);
+    expect(await qa.getByText("No issues yet").count()).toBe(1);
     await qa.goto(issueUrl);
-    expect(await qa.getByRole("heading", { name: "Not found" }).count()).toBe(1);
+    await qa.getByRole("heading", { name: "Not found" }).waitFor();
+    expect(await qa.getByTestId("plain-summary").count()).toBe(0);
     expect((await qa.request.get(`${APP}${xlsxHref}`)).status()).toBe(404);
     expect((await qa.request.get(`${APP}${evidenceSrc}`)).status()).toBe(404);
     expect((await qa.request.get(`${APP}/api/runs/${runId}`)).status()).toBe(404);
@@ -416,6 +422,7 @@ describe("WebAudit Pro end to end", () => {
     it("Bug Test 2: Start Audit saves the selected project, its URL and settings, and the progress page names it", async () => {
       await page.goto(`${APP}/audits/new?project=${projectId}`);
       await page.getByLabel("Project", { exact: true }).selectOption(redRiverId);
+      await page.getByText("Advanced settings (optional)").click();
       for (const vw of ["320px", "768px", "1024px"]) await page.getByLabel(vw, { exact: true }).uncheck();
       await page.getByLabel("Scan rate: delay between page loads (ms)").fill("500");
       await page.getByTestId("start-audit").click();
@@ -460,6 +467,7 @@ describe("WebAudit Pro end to end", () => {
       }, { timeout: 20_000, interval: 1000 }).toMatch(/stale|offline/);
       expect(await page.getByTestId("nav-worker").getAttribute("data-state")).toMatch(/stale|offline/);
 
+      await page.getByText("Advanced settings (optional)").click();
       for (const vw of ["320px", "768px", "1024px"]) await page.getByLabel(vw, { exact: true }).uncheck();
       await page.getByTestId("start-audit").click();
       await page.waitForURL(/\/audits\/[0-9a-f-]{36}$/);
@@ -477,7 +485,103 @@ describe("WebAudit Pro end to end", () => {
       // Restart the worker: the queued audit is picked up and completes.
       workerProc = startProc([resolve("node_modules/tsx/dist/cli.mjs"), "worker/worker.ts"]);
       await waitForRun(id);
+      await page.reload(); // the sidebar status is rendered on navigation
       expect(await page.getByTestId("nav-worker").getAttribute("data-state")).toBe("online");
+    });
+  });
+
+  describe("UX acceptance (from the real UI)", () => {
+    it("UX 1: the dashboard shows the getting-started guide, websites, attention cards and system status; the guide can be hidden", async () => {
+      // Admin: every step is done here, so the guide stays out of the way.
+      await page.goto(`${APP}/`);
+      expect(await page.getByTestId("getting-started").count()).toBe(0);
+      expect(await page.getByTestId("dashboard-websites").innerText()).toContain("Fixture Mortgage");
+      expect(await page.getByTestId("dashboard-worker").getAttribute("data-state")).toBe("online");
+      expect(await page.getByTestId("dashboard-google").innerText()).toContain("PageSpeed: not set up");
+      await page.getByRole("link", { name: /High-priority findings/ }).click();
+      await page.waitForURL(/quick=high/);
+      // A new user (no websites yet) sees the guide with real progress, and hiding it is remembered.
+      const ctx = await browser.newContext();
+      const fresh = await ctx.newPage();
+      await fresh.goto(`${APP}/login`);
+      await fresh.getByLabel("Email").fill(QA.email);
+      await fresh.getByLabel("Password").fill(QA.password);
+      await fresh.getByRole("button", { name: "Sign in" }).click();
+      await fresh.waitForURL(`${APP}/`);
+      const guide = fresh.getByTestId("getting-started");
+      expect(await guide.getByText("Welcome to WebAudit Pro").count()).toBe(1);
+      expect(await guide.getByText("(done)").count()).toBe(0);
+      await fresh.getByRole("button", { name: "Hide this guide" }).click();
+      await fresh.getByRole("button", { name: "Show the getting-started guide" }).waitFor();
+      await fresh.reload();
+      expect(await fresh.getByTestId("getting-started").count()).toBe(0);
+      await fresh.getByRole("button", { name: "Show the getting-started guide" }).click();
+      await fresh.getByTestId("getting-started").waitFor();
+      await ctx.close();
+    });
+
+    it("UX 2: quick filters work, a view can be saved and deleted, and Back from an issue keeps the filters", async () => {
+      await page.goto(`${APP}/issues?run=${runId}`);
+      const all = await page.locator("tbody tr").count();
+      await page.getByTestId("quick-filters").getByRole("link", { name: "Mobile" }).click();
+      await page.waitForURL(/quick=mobile/);
+      expect(await page.getByTestId("quick-filters").getByRole("link", { name: "Mobile" }).getAttribute("aria-current")).toBe("page");
+      const mobile = await page.locator("tbody tr td:nth-child(8)").allInnerTexts();
+      expect(mobile.length).toBeGreaterThan(0);
+      expect(mobile.every((v) => v.split(", ").some((x) => Number(x) < 768))).toBe(true);
+      await page.getByTestId("quick-filters").getByRole("link", { name: "Desktop" }).click();
+      await page.waitForURL(/quick=desktop/);
+      expect(await page.locator("tbody tr").count()).toBeLessThanOrEqual(all);
+
+      await page.getByText("Save current filters…").click();
+      await page.getByLabel("View name").fill("Desktop issues");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await page.getByTestId("saved-views").getByRole("link", { name: "Desktop issues" }).waitFor();
+
+      await page.locator("tbody tr td:nth-child(3) a").first().click();
+      await page.waitForURL(/\/issues\/[0-9a-f-]{36}\?from=/);
+      expect(await page.getByTestId("plain-summary").innerText()).toMatch(/What's wrong[\s\S]*Why it matters[\s\S]*Who fixes it/);
+      expect(await page.getByText("Text recommendation only.").count()).toBe(1);
+      await page.getByText("Technical details for developers").click();
+      expect(await page.getByTestId("technical-details").innerText()).toContain("Selector");
+      await page.getByRole("link", { name: "← Back to your filtered list" }).click();
+      await page.waitForURL(/quick=desktop/);
+
+      await page.getByRole("button", { name: "Delete saved view Desktop issues" }).click();
+      await page.getByTestId("saved-views").getByText("none yet").waitFor();
+    });
+
+    it("UX 3: a custom report from selected issues previews and contains exactly those issues", async () => {
+      await page.goto(`${APP}/issues?run=${runId}&sort=code`);
+      await page.locator("tbody tr input[type=checkbox]").nth(0).check();
+      await page.locator("tbody tr input[type=checkbox]").nth(1).check();
+      await page.getByTestId("report-from-selected").click();
+      await page.waitForURL(/\/reports\?/);
+      expect(await page.getByTestId("selected-ids").innerText()).toContain("only the 2 issues you selected");
+      expect(await page.getByTestId("report-preview").innerText()).toMatch(/include 2 findings/);
+      const before = new Set(q<{ id: string }>("SELECT id FROM exports").map((r) => r.id));
+      await page.getByRole("button", { name: "Generate JSON" }).click();
+      await page.getByText("Report queued").waitFor();
+      const created = q<{ id: string; filters_json: string }>("SELECT id, filters_json FROM exports WHERE format = 'json'").filter((r) => !before.has(r.id));
+      expect(created).toHaveLength(1);
+      expect(JSON.parse(created[0].filters_json).ids).toHaveLength(2);
+      for (let t = 0; q<{ status: string }>("SELECT status FROM exports WHERE id = ?", created[0].id)[0].status !== "completed"; t++) {
+        if (t > 120) throw new Error("export did not complete");
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const json = await (await page.request.get(`${APP}/api/exports/${created[0].id}`)).json();
+      expect(json.issues).toHaveLength(2);
+    });
+
+    it("UX 4: Help explains the workflow and terms; New Audit keeps advanced settings out of the way", async () => {
+      await page.goto(`${APP}/help`);
+      expect(await page.getByRole("heading", { name: "Help & getting started" }).count()).toBe(1);
+      expect(await page.getByText("Words you'll see").count()).toBe(1);
+      await page.goto(`${APP}/audits/new?project=${projectId}`);
+      expect(await page.getByLabel("Maximum pages").isVisible()).toBe(false);
+      expect(await page.getByTestId("settings-summary").innerText()).toMatch(/Up to \d+ pages/);
+      await page.getByText("Advanced settings (optional)").click();
+      expect(await page.getByLabel("Maximum pages").isVisible()).toBe(true);
     });
   });
 
@@ -489,7 +593,7 @@ describe("WebAudit Pro end to end", () => {
       "/", "/projects", `/projects/${projectId}`, `/audits/new?project=${projectId}`, "/audits", `/audits/${runId}`,
       "/issues", `/issues/${issueId}`, `/reports?run=${runId}`, "/approvals", `/reaudit?project=${projectId}`,
       `/google?project=${projectId}`, `/google/pagespeed?project=${projectId}`, `/google/structured-data?project=${projectId}`,
-      `/google/connections?project=${projectId}`, "/settings",
+      `/google/connections?project=${projectId}`, "/settings", "/help",
     ];
     const overflow: string[] = [];
     const a11y: { route: string; id: string; impact: string; nodes: number; help: string }[] = [];

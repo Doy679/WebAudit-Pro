@@ -35,6 +35,19 @@ Logical work stages, not dates. "Done" follows the Definition of Done: root caus
 | BUG-013 Error page | Done |
 | Larger UX items (saved filters, list ergonomics, notifications) | Moved to backlog PB-07, PB-08, PB-13 |
 
+## Sprint 5: User-friendly UX ✅ (scoped; see UX_BACKLOG.md)
+| Item | Status |
+|---|---|
+| Dashboard redesign, getting-started guide, Help page | Done: UX-01 to UX-03 |
+| Guided New Audit (advanced settings collapsed) | Done: UX-04 |
+| Issues: quick filters, saved views, preserved filters, plain-language rows | Done: UX-05 to UX-09 |
+| Issue detail: plain summary first, technical details collapsed, honest Current vs Proposed, zoom | Done: UX-10 to UX-12 |
+| Report workflow with preview; custom selected-issues report | Done: UX-13, UX-14 |
+| Simplified client portal | Done: UX-15 |
+| Phone overflow on real data | Done: BUG-018 |
+| Real-user usability testing | Open: UX-20 |
+| Mobile card layout for the Issues table | Open: UX-21 |
+
 ## Sprint 4: Security, Google, release readiness (partial)
 | Item | Status |
 |---|---|

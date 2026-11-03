@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS client_decisions (
   ip TEXT, user_agent TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Per-user UI state: saved Issues filters and onboarding dismissal.
+CREATE TABLE IF NOT EXISTS saved_views (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, query TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_prefs (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (user_id, key));
 
 -- Google SEO & Performance suite ------------------------------------------------------------
 -- One Google account authorization per app user (read-only Search Console scope). Tokens are AES-GCM encrypted.

@@ -21,6 +21,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         <button onClick={reset} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">Try again</button>
         <Link href="/" className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">Go to Overview</Link>
+        <Link href="/help" className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">Help</Link>
       </div>
     </div>
   );

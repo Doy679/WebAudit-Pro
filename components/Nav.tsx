@@ -16,6 +16,7 @@ const ITEMS = [
   { href: "/reaudit", label: "Re-Audit" },
   { href: "/google", label: "Google SEO & Performance" },
   { href: "/settings", label: "Settings" },
+  { href: "/help", label: "Help" },
 ];
 
 const isActive = (path: string, href: string) =>
@@ -28,7 +29,7 @@ export function Nav({ userName, roleLabel, logout, worker }: { userName: string;
     <>
       <div className="flex items-center justify-between bg-navy-900 px-4 py-3 text-white lg:hidden">
         <span className="font-semibold">WebAudit Pro</span>
-        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="main-nav" className="rounded border border-white/30 px-3 py-1 text-sm">
+        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="main-nav" className="rounded border border-white/30 px-4 py-2 text-sm">
           Menu
         </button>
       </div>

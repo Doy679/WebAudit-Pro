@@ -13,6 +13,17 @@ All results below are from runs in this session (Windows 11, Node 26.13, Microso
 
 New this sprint: `test/issues-page.test.ts` (15), `test/account.test.ts` (4), fingerprint stability (1), JSON report size check, E2E "P0 regression", E2E "UI audit".
 
+## UX sprint (2026-11-03, after the UX changes)
+
+| Check | Result |
+|---|---|
+| Unit + integration | **244 passed** (18 files) · typecheck pass · production build pass · E2E **23 passed** (final run, after the last code change) |
+| New unit tests (`test/ux.test.ts`) | quick filters (incl. client-approval state), plain-language explanations (+13 axe rules), saved views (privacy, parameter whitelist), onboarding progress and dismissal, dashboard summaries (scoping), report preview (matches report rules, access check) |
+| New E2E | UX 1 dashboard + guide (fresh user, hide persists), UX 2 quick filters + saved view + Back keeps filters + plain summary + technical details, UX 3 custom selected-issues report (preview 2 → JSON with exactly 2), UX 4 Help + collapsed advanced settings; client portal explanation assertions |
+| UI audit | 17 pages (adds `/help`) × 320/390/768/1024/1440: **0 overflow, 0 critical/serious axe violations** |
+| Real-data walkthrough | Copy of the real database (+ real screenshots, read-only), production build, Edge at 390 and 1440 px: dashboard, Issues (750 findings), High priority, issue detail, New Audit, Reports, Help. All HTTP 200 in 0.6–1.4 s; found and fixed BUG-018 |
+| Explanation coverage | 2,640 of 2,640 findings in the real database have a specific plain-language explanation |
+
 ## Required regression scenarios (Issues P0)
 
 | Scenario | Where | Result |

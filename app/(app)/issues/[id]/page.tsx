@@ -4,6 +4,8 @@ import { getIssue } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
 import { aiSettings } from "@/server/settings";
+import { explainIssue } from "@/server/explain";
+import { FILTER_PARAMS } from "@/server/issue-filters";
 import { evidenceUrl } from "@/server/files";
 import { reviewAction, explainIssueAction } from "@/app/actions";
 import { ActionForm, Submit } from "@/components/forms";
@@ -20,8 +22,29 @@ const ACTION_LABEL: Record<string, string> = {
   implementation: "Implementation status", client_approved: "Client approved", client_rejected: "Client rejected", client_revision_requested: "Client requested revision",
 };
 
-export default async function IssuePage({ params }: { params: Promise<{ id: string }> }) {
+const SEVERITY_TEXT: Record<string, string> = {
+  high: "High: fix soon. It clearly affects visitors or accessibility.",
+  medium: "Medium: worth fixing in the next round of updates.",
+  low: "Low: minor polish.",
+};
+const KIND_TEXT: Record<string, string> = {
+  confirmed: "Confirmed by measurement",
+  recommendation: "Recommended improvement",
+  "needs-review": "Possible problem: a person should check it",
+};
+const deviceWords = (vs: number[]) => {
+  const groups = [
+    ["phones", vs.filter((v) => v < 768)],
+    ["tablets", vs.filter((v) => v >= 768 && v < 1024)],
+    ["desktops", vs.filter((v) => v >= 1024)],
+  ] as const;
+  const parts = groups.filter(([, g]) => g.length).map(([n, g]) => `${n} (${g.join(", ")}px wide)`);
+  return parts.length ? parts.join(", ") : "all screen sizes";
+};
+
+export default async function IssuePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   const { id } = await params;
+  const { from } = await searchParams;
   const user = await requireUser();
   const i = orNotFound(() => getIssue(user, id));
   const members = projectMembers(user, i.project_id);
@@ -34,15 +57,41 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
     src: evidenceUrl(i.run_id, s.path),
     boxes: i.occurrences.filter((o) => o.url === i.url && o.viewport === s.viewport).flatMap((o) => o.boxes as Shot["boxes"]).slice(0, 20),
   }));
+  const plain = explainIssue(i);
+  // Only known filter parameters are carried back to the list.
+  const back = new URLSearchParams([...new URLSearchParams(from ?? "")].filter(([k]) => FILTER_PARAMS.includes(k))).toString();
   const css = Object.entries(i.evidence.computedCss ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
 
   return (
     <>
-      <div className="mb-2 text-sm"><Link href={`/issues?run=${i.run_id}`} className="text-accent-600 hover:underline">← All findings in this audit</Link></div>
+      <div className="mb-2 text-sm">
+        <Link href={back ? `/issues?${back}` : `/issues?run=${i.run_id}`} className="text-accent-600 hover:underline">← {back ? "Back to your filtered list" : "All issues in this audit"}</Link>
+      </div>
       <PageHeader
         title={`${i.code}: ${i.title}`}
-        subtitle={<>{i.project_name} · {TYPE_LABEL[i.type] ?? i.type} · rule <code className="text-xs">{i.rule}</code> · captured {fmtDate(i.captured_at)}</>}
+        subtitle={<>{i.project_name} · {TYPE_LABEL[i.type] ?? i.type} · found {fmtDate(i.captured_at)}</>}
       />
+
+      <section aria-labelledby="plain-title" className="mb-6 rounded-lg border border-slate-200 bg-white p-4" data-testid="plain-summary">
+        <h2 id="plain-title" className="sr-only">Summary in plain language</h2>
+        <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
+          <dt className="font-semibold text-navy-900">What&apos;s wrong</dt><dd className="text-slate-800">{plain.what}</dd>
+          <dt className="font-semibold text-navy-900">Where</dt>
+          <dd className="min-w-0 text-slate-800">
+            <a href={i.url} target="_blank" rel="noopener noreferrer" className="break-all text-accent-600 underline">{i.url}</a>
+            {i.pages.length > 1 && <> and {i.pages.length - 1} more page{i.pages.length === 2 ? "" : "s"}</>}
+            {i.viewports.length > 0 && <span className="block text-xs text-slate-600">Seen on {deviceWords(i.viewports)}</span>}
+          </dd>
+          <dt className="font-semibold text-navy-900">How serious</dt>
+          <dd className="flex flex-wrap items-center gap-2 text-slate-800"><SeverityBadge severity={i.severity} /> {SEVERITY_TEXT[i.severity] ?? ""} <span className="text-xs text-slate-600">({KIND_TEXT[i.kind] ?? i.kind})</span></dd>
+          <dt className="font-semibold text-navy-900">Why it matters</dt><dd className="text-slate-800">{plain.why}</dd>
+          <dt className="font-semibold text-navy-900">What to change</dt><dd className="text-slate-800">{i.recommendation}</dd>
+          <dt className="font-semibold text-navy-900">Who fixes it</dt>
+          <dd className="text-slate-800">Usually a {plain.who.toLowerCase()}.{" "}{i.assignee_name ? <>Assigned to <strong>{i.assignee_name}</strong>.</> : "Not assigned yet."}</dd>
+          <dt className="font-semibold text-navy-900">Client approval</dt>
+          <dd className="text-slate-800">{i.client_decision ? <StatusPill status={i.client_decision} /> : "No client decision yet."}</dd>
+        </dl>
+      </section>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SeverityBadge severity={i.severity} /><KindBadge kind={i.kind} />
@@ -60,27 +109,40 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
         </Notice></div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-6">
           <Card title="Current vs Proposed">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-md border border-sev-high/30 bg-sev-high-bg/50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-sev-high">Current (measured)</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-sev-high">Current: what the audit measured</div>
                 <div className="mt-1 break-words font-mono text-sm" data-testid="current-value">{i.current_value ?? "Not measured"}</div>
+                {shots.length > 0 && <p className="mt-2 text-xs text-slate-600">The screenshot below shows the current page with the problem outlined in red.</p>}
               </div>
               <div className="rounded-md border border-ok/30 bg-ok-bg/60 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-ok">Proposed</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-ok">Proposed: the recommended correction</div>
                 <div className="mt-1 break-words font-mono text-sm" data-testid="proposed-value">
                   {i.proposed_value ?? <span className="font-sans italic text-slate-600">Human review required: no reliable measured correction is available.</span>}
                 </div>
+                <p className="mt-2 text-xs text-slate-600">Text recommendation only. WebAudit Pro doesn&apos;t create mock-up screenshots, so there is no &quot;after&quot; image.</p>
               </div>
             </div>
-            <h3 className="mt-4 text-sm font-semibold text-navy-900">Recommendation</h3>
-            <p className="mt-1 text-sm text-slate-700">{i.recommendation}</p>
-            <h3 className="mt-4 text-sm font-semibold text-navy-900">Evidence</h3>
+            <p className="mt-3 text-sm text-slate-700"><span className="font-semibold text-navy-900">Benefit: </span>{plain.why}</p>
+
+            {shots.length > 0 && (
+              <div className="mt-4">
+                <h3 className="mb-2 text-sm font-semibold text-navy-900">Screenshot of the current page</h3>
+                <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} />
+              </div>
+            )}
+
+            <details className="mt-4 rounded-md border border-slate-200 p-3" data-testid="technical-details">
+              <summary className="cursor-pointer text-sm font-semibold text-navy-900">Technical details for developers</summary>
+            <h3 className="mt-3 text-sm font-semibold text-navy-900">Evidence</h3>
             <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
               <dt className="text-slate-500">Page</dt><dd className="break-all"><a href={i.url} target="_blank" rel="noopener noreferrer" className="text-accent-600 underline">{i.url}</a></dd>
               <dt className="text-slate-500">Viewports</dt><dd>{i.viewports.map((v) => `${v}px`).join(", ")}</dd>
+              <dt className="text-slate-500">Rule</dt><dd className="font-mono text-xs">{i.rule}</dd>
+              <dt className="text-slate-500">Confidence</dt><dd>{Math.round(i.confidence * 100)}%</dd>
               <dt className="text-slate-500">Selector</dt><dd className="break-all font-mono text-xs">{i.selector ?? "Page level"}</dd>
               {i.elementor_id && <><dt className="text-slate-500">Elementor widget</dt><dd className="font-mono text-xs">{i.elementor_id}</dd></>}
               <dt className="text-slate-500">Classification</dt>
@@ -90,10 +152,11 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
               <>
                 <h3 className="mt-4 text-sm font-semibold text-navy-900">Computed CSS</h3>
                 <table className="mt-1 text-xs">
-                  <tbody>{css.map(([k, v]) => <tr key={k}><td className="pr-4 font-mono text-slate-500">{k}</td><td className="font-mono">{String(v)}</td></tr>)}</tbody>
+                  <tbody>{css.map(([k, v]) => <tr key={k}><td className="pr-4 font-mono text-slate-500">{k}</td><td className="break-all font-mono">{String(v)}</td></tr>)}</tbody>
                 </table>
               </>
             )}
+            </details>
           </Card>
 
           {i.provider !== "webaudit" && (
@@ -107,12 +170,6 @@ export default async function IssuePage({ params }: { params: Promise<{ id: stri
                 <dd>{i.provider === "gsc" ? "Google-indexed information (as of Google's last crawl), not a live test." : i.provider === "psi" || i.provider === "crux" ? (i.type === "cwv" ? "Real-user measurements (Chrome UX Report, 28 days)." : "Lighthouse lab measurement or estimate; varies between runs.") : "Internal check against Google's documented requirements; confirm with the Rich Results Test."}</dd>
               </dl>
               {typeof i.evidence.computedCss?.evidence === "string" && <pre className="mt-3 whitespace-pre-wrap rounded bg-slate-50 p-2 text-xs text-slate-700">{i.evidence.computedCss.evidence}</pre>}
-            </Card>
-          )}
-
-          {shots.length > 0 && (
-            <Card title="Screenshot evidence">
-              <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} />
             </Card>
           )}
 

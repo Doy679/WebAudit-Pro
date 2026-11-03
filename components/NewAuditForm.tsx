@@ -75,14 +75,20 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
     window.history.replaceState(null, "", `/audits/new?project=${id}`);
   }
 
-  const blocked = !!urlProblem || !!listProblem || !f.viewports.length;
+  const blocked = !!urlProblem || !!listProblem || !f.viewports.length || !f.categories.length;
+  const [advanced, setAdvanced] = useState(false);
+  const google = [f.psiMobile && "PageSpeed mobile", f.psiDesktop && "PageSpeed desktop", f.gscPerformance && "Search Console data", f.gscSitemaps && "Search Console sitemaps", f.inspectMaxUrls > 0 && "URL inspection"].filter(Boolean);
+  const summary = `${f.urls.trim() ? "Only the listed pages" : `Up to ${f.maxPages} pages${f.useSitemap ? " (found via the sitemap)" : ""}`} · ${f.viewports.length} screen sizes · ${f.categories.length} of ${CATEGORIES.length} check types · ${google.length ? google.join(", ") : "no Google checks"}`;
+  // Problems hidden inside the collapsed section must still be visible next to the Start button.
+  const advancedProblem = listProblem ?? (!f.viewports.length ? "Choose at least one screen size under Advanced settings." : !f.categories.length ? "Choose at least one check type under Advanced settings." : null);
 
   return (
     <form action={formAction} className="space-y-5" data-testid="new-audit-form">
       <input type="hidden" name="projectId" value={project.id} />
 
       <div>
-        <label htmlFor="projectId-select" className={label}>Project</label>
+        <div className="flex items-center"><StepNo n={1} /><label htmlFor="projectId-select" className={label}>Project</label></div>
+        <p className={hint}>Which website do you want to audit?</p>
         <select id="projectId-select" value={project.id} onChange={(e) => switchProject(e.target.value)} className={`${input} mt-1`}>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.domain})</option>)}
         </select>
@@ -93,7 +99,7 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
       </div>
 
       <div>
-        <label htmlFor="startUrl" className={label}>Website URL</label>
+        <div className="flex items-center"><StepNo n={2} /><label htmlFor="startUrl" className={label}>Website URL</label></div>
         <input id="startUrl" name="startUrl" type="url" required value={f.url} onChange={(e) => set("url", e.target.value)}
           aria-invalid={!!urlProblem} aria-describedby="startUrl-help"
           className={cx(input, "mt-1", urlProblem && "border-sev-high ring-1 ring-sev-high")} />
@@ -102,6 +108,13 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
         </p>
       </div>
 
+      <details className="rounded-md border border-slate-200 bg-white" open={advanced} onToggle={(e) => setAdvanced(e.currentTarget.open)} data-testid="advanced-settings">
+        <summary className="cursor-pointer px-3 py-2 text-sm">
+          <span className="font-medium text-accent-600">Advanced settings (optional)</span>
+          <span className="block text-xs text-slate-600" data-testid="settings-summary">{summary}</span>
+        </summary>
+        <div className="space-y-5 border-t border-slate-100 p-3">
+      <p className="text-xs text-slate-600">The defaults come from this project&apos;s saved settings and suit most audits. Change them only if you need to.</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="maxPages" className={label}>Maximum pages</label>
@@ -124,7 +137,8 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
       </div>
 
       <fieldset>
-        <legend className={label}>Viewports</legend>
+        <legend className={label}>Screen sizes (viewports)</legend>
+        <p className={hint}>320–390px are phones, 768px a tablet, 1024–1440px laptops and desktops.</p>
         <div className="mt-1 flex flex-wrap gap-4 text-sm">
           {VIEWPORTS.map((v) => <label key={v} className="flex items-center gap-1"><input type="checkbox" name="viewports" value={v} checked={f.viewports.includes(v)} onChange={() => toggle("viewports", v)} />{v}px</label>)}
         </div>
@@ -157,19 +171,28 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
         </div>
       </fieldset>
 
+        </div>
+      </details>
+
       <p className="text-sm text-slate-600">
         Design standards: {project.hasStandards ? <>{project.name}&apos;s <Link className="text-accent-600 underline" href={`/projects/${project.id}`}>approved tokens</Link></> : <>default baseline (<Link className="text-accent-600 underline" href={`/projects/${project.id}`}>set approved tokens</Link>)</>}.
       </p>
 
       <WorkerNotice worker={worker} />
+      {advancedProblem && <Notice tone="error">{advancedProblem}</Notice>}
       {state?.error && <Notice tone="error">{state.error}{state.link && <> <Link className="underline" href={state.link}>Open that audit</Link></>}</Notice>}
 
       <div className="flex flex-wrap items-center gap-3">
+        <span className="sr-only"><StepNo n={3} /></span>
         <StartButton disabled={blocked} />
         <button type="button" className={btn.secondary} onClick={() => setF(defaultsFor(project))}>Reset to project defaults</button>
       </div>
     </form>
   );
+}
+
+function StepNo({ n }: { n: number }) {
+  return <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-navy-900 text-[11px] font-semibold text-white" aria-hidden="true">{n}</span>;
 }
 
 function StartButton({ disabled }: { disabled: boolean }) {
