@@ -80,7 +80,7 @@ export async function processAudit(runId: string, log: (m: string) => void): Pro
     });
 
     updateProgress(runId, { phase: "importing", pagesDone: result.summary.pages.length });
-    importResults(runId, result.issues, result.summary.pages);
+    importResults(runId, result.issues, result.summary.pages, result.structured);
     const summary = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
     finishRun(runId, "completed", undefined, summary);
     return "completed";

@@ -104,7 +104,62 @@ CREATE TABLE IF NOT EXISTS client_decisions (
   ip TEXT, user_agent TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Google SEO & Performance suite ------------------------------------------------------------
+-- One Google account authorization per app user (read-only Search Console scope). Tokens are AES-GCM encrypted.
+CREATE TABLE IF NOT EXISTS google_connections (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, scopes TEXT NOT NULL,
+  refresh_token_enc TEXT NOT NULL, access_token_enc TEXT, access_expires_at TEXT,
+  created_at TEXT NOT NULL, revoked_at TEXT, last_error TEXT
+);
+-- Which Search Console property (via which connection) a project uses, plus per-project request limits.
+CREATE TABLE IF NOT EXISTS project_google (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  connection_id TEXT REFERENCES google_connections(id) ON DELETE SET NULL, gsc_property TEXT, gsc_permission TEXT,
+  psi_max_urls INTEGER NOT NULL DEFAULT 10, inspection_max_urls INTEGER NOT NULL DEFAULT 20,
+  updated_by TEXT REFERENCES users(id), updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS psi_results (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES audit_runs(id) ON DELETE SET NULL, url TEXT NOT NULL,
+  strategy TEXT NOT NULL CHECK (strategy IN ('mobile','desktop')), status TEXT NOT NULL CHECK (status IN ('ok','error')),
+  error TEXT, error_kind TEXT, fetched_at TEXT NOT NULL, analysis_ts TEXT, lighthouse_version TEXT,
+  result_json TEXT, crux_json TEXT, created_by TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS psi_lookup ON psi_results(project_id, url, strategy, fetched_at);
+CREATE TABLE IF NOT EXISTS structured_data (
+  run_id TEXT NOT NULL REFERENCES audit_runs(id) ON DELETE CASCADE, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, items_json TEXT NOT NULL, errors INTEGER NOT NULL, warnings INTEGER NOT NULL, rules_version TEXT NOT NULL,
+  checked_at TEXT NOT NULL, PRIMARY KEY (run_id, url)
+);
+CREATE TABLE IF NOT EXISTS gsc_data (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES audit_runs(id) ON DELETE SET NULL, property TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('performance','sitemaps','inspection')), key TEXT NOT NULL,
+  params_json TEXT NOT NULL DEFAULT '{}', data_json TEXT, status TEXT NOT NULL CHECK (status IN ('ok','error')),
+  error TEXT, fetched_at TEXT NOT NULL, created_by TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS gsc_lookup ON gsc_data(project_id, kind, key, fetched_at);
+CREATE TABLE IF NOT EXISTS google_tasks (
+  id TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('psi','gsc_performance','gsc_sitemaps','gsc_inspect')),
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, run_id TEXT REFERENCES audit_runs(id) ON DELETE CASCADE,
+  payload_json TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','skipped')),
+  error TEXT, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS google_tasks_status ON google_tasks(status, created_at);
 `;
+
+/** Additive migrations for databases created before a column existed. */
+function migrate(db: DB) {
+  const cols = (table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+  const issueCols = cols("issues");
+  // Where a finding came from: webaudit (engine), psi, crux, gsc or schema (internal structured-data validator).
+  if (!issueCols.has("provider")) db.exec("ALTER TABLE issues ADD COLUMN provider TEXT NOT NULL DEFAULT 'webaudit'");
+  if (!issueCols.has("source_ref")) db.exec("ALTER TABLE issues ADD COLUMN source_ref TEXT");
+  if (!issueCols.has("provider_ts")) db.exec("ALTER TABLE issues ADD COLUMN provider_ts TEXT");
+  if (!issueCols.has("metric_key")) db.exec("ALTER TABLE issues ADD COLUMN metric_key TEXT");
+  if (!issueCols.has("related_json")) db.exec("ALTER TABLE issues ADD COLUMN related_json TEXT NOT NULL DEFAULT '[]'");
+}
 
 const globalForDb = globalThis as unknown as { __webauditDb?: { path: string; db: DB } };
 
@@ -116,6 +171,7 @@ export function getDb(): DB {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
+  migrate(db);
   globalForDb.__webauditDb = { path, db };
   return db;
 }

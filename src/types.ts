@@ -71,7 +71,7 @@ export interface PageSnapshot {
   elements: ElementSnapshot[];
 }
 
-export type IssueType = "layout" | "typography" | "buttons" | "spacing" | "a11y" | "seo" | "content" | "navigation" | "consistency";
+export type IssueType = "layout" | "typography" | "buttons" | "spacing" | "a11y" | "seo" | "content" | "navigation" | "consistency" | "structured-data";
 export type IssueKind = "confirmed" | "recommendation" | "needs-review";
 export type Severity = "high" | "medium" | "low";
 export type ReviewStatus = "pending" | "approved" | "revision-requested" | "rejected";

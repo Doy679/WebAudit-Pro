@@ -30,7 +30,8 @@ export function a11yIssues(page: PageSnapshot, axe: AxeLike): RawIssue[] {
         type: "a11y",
         rule: `axe:${rule.id}`,
         kind,
-        severity: SEVERITY[rule.impact ?? ""] ?? "medium",
+        // Undecided axe results ("incomplete") are capped at medium: uncertain findings are never high priority.
+        severity: kind === "needs-review" && SEVERITY[rule.impact ?? ""] === "high" ? "medium" : SEVERITY[rule.impact ?? ""] ?? "medium",
         confidence: kind === "confirmed" ? 0.85 : 0.5,
         title: rule.help,
         current: node.failureSummary?.replace(/\s+/g, " ").trim(),

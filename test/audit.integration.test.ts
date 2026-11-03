@@ -107,6 +107,15 @@ describe("runAudit (integration)", () => {
     expect(result.summary.linksChecked).toBeGreaterThan(0);
   });
 
+  it("validates structured data: syntax errors and missing Google-required properties", () => {
+    expect(find("schema:syntax")?.kind).toBe("confirmed");
+    const missing = result.issues.filter((i) => i.rule === "schema:required" && i.location.url.endsWith("/problems.html")).map((i) => i.current);
+    expect(missing).toEqual(expect.arrayContaining(["startDate: missing", "location: missing"]));
+    const home = result.structured.find((s) => new URL(s.url).pathname === "/")!;
+    // Valid schema and a Google candidate; recommended properties (address, telephone…) are reported as warnings.
+    expect(home.result.items[0]).toMatchObject({ types: ["Organization"], status: "warnings", eligibility: "candidate", googleFeature: "Organization" });
+  });
+
   it("gives every finding a fingerprint, page list and traceable occurrences", () => {
     for (const i of result.issues) {
       expect(i.fingerprint).toMatch(/^[0-9a-f]{16}$/);

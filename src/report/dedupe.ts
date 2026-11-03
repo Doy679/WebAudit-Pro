@@ -3,7 +3,7 @@ import type { Issue, IssueType, RawIssue, Severity } from "../types.js";
 
 const PREFIX: Record<IssueType, string> = {
   seo: "SEO", layout: "LAY", typography: "TYP", buttons: "BTN", spacing: "SPC", a11y: "A11Y",
-  content: "CNT", navigation: "NAV", consistency: "CMP",
+  content: "CNT", navigation: "NAV", consistency: "CMP", "structured-data": "SD",
 };
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const MAX_BOXES = 20;

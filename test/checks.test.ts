@@ -222,6 +222,9 @@ describe("a11y (axe results → issues)", () => {
 
   it("maps incomplete results to needs-review", () => {
     const issues = a11yIssues(page({ viewport: 390 }), axe);
-    expect(issues.find((i) => i.location.selector === ".banner h2")!.kind).toBe("needs-review");
+    const undecided = issues.find((i) => i.location.selector === ".banner h2")!;
+    expect(undecided.kind).toBe("needs-review");
+    // A "serious" impact that axe could not decide is capped at medium (found on the CHM pilot: 184 of 212 "high").
+    expect(undecided.severity).toBe("medium");
   });
 });

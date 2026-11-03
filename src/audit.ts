@@ -16,6 +16,8 @@ import { a11yIssues, type AxeLike } from "./checks/a11y.js";
 import { contentChecks } from "./checks/content.js";
 import { navigationChecks, brokenLinkIssues, type LinkResult } from "./checks/site.js";
 import { componentChecks } from "./checks/components.js";
+import { structuredDataIssues, validateStructuredData } from "./schema/validate.js";
+import type { SdResult } from "./schema/types.js";
 import { dedupeAndNumber } from "./report/dedupe.js";
 import { annotate } from "./report/annotate.js";
 import { renderReport } from "./report/html.js";
@@ -66,9 +68,11 @@ export interface AuditResult {
   runDir: string;
   issues: Issue[];
   summary: { pages: PageResult[]; skipped: { url: string; reason: string }[]; linksChecked: number };
+  /** Structured data found per page (widest viewport), with internal validation results. */
+  structured: { url: string; result: SdResult }[];
 }
 
-export const CATEGORIES = ["layout", "buttons", "typography", "spacing", "a11y", "seo", "content", "navigation", "consistency"] as const;
+export const CATEGORIES = ["layout", "buttons", "typography", "spacing", "a11y", "seo", "content", "navigation", "consistency", "structured-data"] as const;
 
 /** Short, readable, unique folder name per URL: "home", "loans-fha-3f2a1c". */
 export function slugFor(url: string): string {
@@ -129,6 +133,8 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
   const snapshots: PageSnapshot[] = [];
   const raw: RawIssue[] = [];
   const pages: PageResult[] = [];
+  const structured: { url: string; result: SdResult }[] = [];
+  const widest = Math.max(...tokens.viewports);
   await capturer.start();
   try {
     for (const [n, url] of found.pages.entries()) {
@@ -138,7 +144,12 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
         await checkCancel();
         log(`[${n + 1}/${found.pages.length}] ${url} @ ${vw}px`);
         await report({ currentUrl: url, currentViewport: vw });
-        const cap = await capturer.capture(url, vw, slug, on("a11y") && tokens.a11yViewports.includes(vw));
+        const cap = await capturer.capture(url, vw, slug, on("a11y") && tokens.a11yViewports.includes(vw), on("structured-data") && vw === widest);
+        if (cap.structured) {
+          const result = validateStructuredData(cap.structured);
+          structured.push({ url, result });
+          raw.push(...structuredDataIssues(cap.snapshot, result));
+        }
         snapshots.push(cap.snapshot);
         await saveSnapshot(runDir, slug, cap.snapshot);
         if (cap.axe) await writeFile(join(runDir, "snapshots", slug, `${vw}.axe.json`), JSON.stringify(cap.axe));
@@ -223,12 +234,13 @@ export async function runAudit(opts: AuditOptions): Promise<AuditResult> {
     settings: { viewports: tokens.viewports, a11yViewports: tokens.a11yViewports, categories: opts.categories ?? CATEGORIES, crawl: tokens.crawl },
   };
   await writeFile(join(runDir, "issues.json"), JSON.stringify(issues, null, 2));
+  await writeFile(join(runDir, "structured-data.json"), JSON.stringify(structured, null, 2));
   await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2));
   await writeFile(join(runDir, "report.html"), renderReport(issues, { startUrl: opts.startUrl, startedAt, finishedAt, pages, skipped: found.skipped }));
   await report({ phase: "done", findings: raw.length });
   log(`Done: ${issues.length} issue(s) from ${raw.length} raw finding(s). Report: ${join(runDir, "report.html")}`);
 
-  return { runDir, issues, summary: { pages, skipped: found.skipped, linksChecked: linkResults.length } };
+  return { runDir, issues, structured, summary: { pages, skipped: found.skipped, linksChecked: linkResults.length } };
 }
 
 async function checkLinks(urls: string[], tokens: Tokens, policy: SsrfPolicy, checkCancel: () => Promise<void>): Promise<LinkResult[]> {

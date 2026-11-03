@@ -7,9 +7,11 @@ import { launchBrowser } from "./browser.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { ElementSnapshot, PageSnapshot, Tokens } from "../types.js";
 import type { AxeLike } from "../checks/a11y.js";
+import type { StructuredDataCapture } from "../schema/types.js";
 import { HostGuard, type SsrfPolicy } from "../security/ssrf.js";
 
 const EXTRACT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "extract.browser.js"), "utf8");
+const STRUCTURED = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "structured.browser.js"), "utf8");
 // Applied to our own headless copy only, so screenshots are stable. Never touches the live site.
 const FREEZE_CSS = "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -17,6 +19,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export interface CaptureResult {
   snapshot: PageSnapshot;
   axe?: AxeLike;
+  structured?: StructuredDataCapture;
   error?: string;
 }
 
@@ -79,7 +82,7 @@ export class Capturer {
     this.lastRequest = Date.now();
   }
 
-  async capture(url: string, viewport: number, slug: string, runAxe: boolean): Promise<CaptureResult> {
+  async capture(url: string, viewport: number, slug: string, runAxe: boolean, collectStructured = false): Promise<CaptureResult> {
     const { pageTimeoutMs, retries, maxScreenshotHeight } = this.tokens.crawl;
     const ctx = await this.context(viewport);
     const page = await ctx.newPage();
@@ -144,6 +147,10 @@ export class Capturer {
         }
       }
 
+      const structured = collectStructured && status < 400
+        ? ((await page.evaluate(STRUCTURED).catch(() => undefined)) as StructuredDataCapture | undefined)
+        : undefined;
+
       const path = join(this.runDir, screenshot);
       await mkdir(dirname(path), { recursive: true });
       const height = Math.min(data.docHeight || 900, maxScreenshotHeight);
@@ -161,6 +168,7 @@ export class Capturer {
           elements: data.elements,
         },
         axe,
+        structured,
       };
     } catch (e) {
       return empty(0, (e as Error).message.split("\n")[0]);

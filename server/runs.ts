@@ -4,6 +4,7 @@ import { assertCan, assertProjectAccess, NotFoundError, projectScope } from "./p
 import { getProject, isInScope } from "./projects";
 import { assertPublicUrl, envPolicy } from "../src/security/ssrf";
 import type { Issue } from "../src/types";
+import type { SdResult } from "../src/schema/types";
 
 export const DEFAULT_VIEWPORTS = [320, 390, 768, 1024, 1440];
 export const MAX_PAGES_LIMIT = 200;
@@ -175,7 +176,12 @@ export function failOrphanedRuns(): number {
 }
 
 /** Stores the engine's grouped findings. Earlier false-positive decisions on the same fingerprint carry over. */
-export function importResults(runId: string, issues: Issue[], pages: { url: string; ok: boolean; status: number; error?: string }[]) {
+export function importResults(
+  runId: string,
+  issues: Issue[],
+  pages: { url: string; ok: boolean; status: number; error?: string }[],
+  structured: { url: string; result: SdResult }[] = [],
+) {
   const projectId = get<{ project_id: string }>("SELECT project_id FROM audit_runs WHERE id = ?", runId)!.project_id;
   const ts = now();
   tx(() => {
@@ -189,17 +195,23 @@ export function importResults(runId: string, issues: Issue[], pages: { url: stri
       const id = newId();
       run(`INSERT INTO issues (id, run_id, project_id, code, fingerprint, type, rule, kind, severity, confidence, title, url, pages_json, viewports_json,
              selector, elementor_id, shared_template, instance_count, current_value, proposed_value, recommendation, evidence_json, occurrences_json,
-             captured_at, verification_status, notes, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             captured_at, verification_status, notes, updated_at, provider)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, runId, projectId, i.id, i.fingerprint, i.type, i.rule, i.kind, i.severity, i.confidence, i.title, i.location.url,
         JSON.stringify(i.location.pages), JSON.stringify(i.location.viewports), i.location.selector ?? null, i.location.elementorId ?? null,
         i.sharedTemplate ? 1 : 0, i.instanceCount, i.current ?? null, i.proposed ?? null, i.recommendation, JSON.stringify(i.evidence),
         JSON.stringify(i.occurrences.slice(0, 200)), i.evidence.capturedAt,
-        prior ? "false_positive" : "unverified", prior ? `Marked false positive in an earlier audit. ${prior.notes}`.trim() : "", ts);
+        prior ? "false_positive" : "unverified", prior ? `Marked false positive in an earlier audit. ${prior.notes}`.trim() : "", ts,
+        i.type === "structured-data" ? "schema" : "webaudit");
       if (prior) {
         run(`INSERT INTO issue_events (id, issue_id, user_id, actor_label, action, from_value, to_value, note, created_at)
              VALUES (?, ?, NULL, 'System', 'false_positive', 'unverified', 'false_positive', 'Carried over from an earlier audit of this project', ?)`, newId(), id, ts);
       }
+    }
+    for (const s of structured) {
+      const all = s.result.items.flatMap((i) => i.issues);
+      run(`INSERT OR REPLACE INTO structured_data (run_id, project_id, url, items_json, errors, warnings, rules_version, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        runId, projectId, s.url, JSON.stringify(s.result.items), all.filter((x) => x.severity === "error").length, all.filter((x) => x.severity === "warning").length, s.result.rulesVersion, ts);
     }
     run("UPDATE audit_runs SET findings = ? WHERE id = ?", issues.length, runId);
   });
