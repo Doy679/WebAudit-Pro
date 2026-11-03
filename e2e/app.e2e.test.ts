@@ -179,6 +179,27 @@ describe("WebAudit Pro end to end", () => {
     await snap("issue-finder");
   });
 
+  it("P0 regression: /issues renders with the exact empty-parameter URL the filter form submits", async () => {
+    const empty = "q=&project=&run=&url=&type=&severity=&viewport=&kind=&verification=&review=&assignee=&provider=&conf=&sort=";
+    const res = await page.goto(`${APP}/issues?${empty}`);
+    expect(res?.status()).toBe(200);
+    expect(await page.getByRole("heading", { name: "Issues" }).isVisible()).toBe(true);
+    expect(await page.locator("tbody tr").count()).toBeGreaterThan(0);
+    // The real interaction: submit the filter form unchanged, then with a filter and a sort.
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForURL(/sort=/);
+    expect(await page.getByText("This page couldn't be loaded").count()).toBe(0);
+    await page.locator("select[name=severity]").selectOption("high");
+    await page.locator("select[name=sort]").selectOption("confidence");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForURL(/severity=high/);
+    const sev = await page.locator("tbody tr td:nth-child(4)").allInnerTexts();
+    expect(sev.length).toBeGreaterThan(0);
+    expect(sev.every((t) => t.trim().toLowerCase() === "high")).toBe(true);
+    // Hostile parameters are ignored rather than crashing the page.
+    expect((await page.goto(`${APP}/issues?sort=x%3B%20DROP%20TABLE%20issues&page=-3&viewport=abc&size=99999`))?.status()).toBe(200);
+  });
+
   it("Test 7: records a review decision with a note and keeps it after reload", async () => {
     await page.goto(issueUrl);
     await page.getByLabel("Note (optional, saved with the decision)").fill("Verified at 390px");

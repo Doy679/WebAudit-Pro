@@ -184,6 +184,27 @@ export function closeDb() {
   globalForDb.__webauditDb = undefined;
 }
 
+/**
+ * Parses a JSON column. Malformed or empty values return the fallback (and report it via onError),
+ * so one damaged record can never crash a whole page.
+ */
+export function safeJson<T>(text: unknown, fallback: T, onError?: () => void): T {
+  if (typeof text !== "string" || text === "") {
+    onError?.();
+    return fallback;
+  }
+  try {
+    const v = JSON.parse(text);
+    return v === null || v === undefined ? fallback : (v as T);
+  } catch {
+    onError?.();
+    return fallback;
+  }
+}
+
+/** SQL expression that is always a valid JSON array, for json_each() over a column that might be malformed. */
+export const jsonArray = (col: string) => `CASE WHEN json_valid(${col}) AND json_type(${col}) = 'array' THEN ${col} ELSE '[]' END`;
+
 export function all<T = Row>(sql: string, ...params: unknown[]): T[] {
   return getDb().prepare(sql).all(...(params as never[])) as T[];
 }

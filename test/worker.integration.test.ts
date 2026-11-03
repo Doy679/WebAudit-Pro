@@ -106,7 +106,8 @@ describe("audit worker (real process)", () => {
     expect(status(id).status).toBe("running"); // the database can't know yet; the UI uses the worker status to say it's stalled
 
     startWorker();
-    await waitFor("requeued", () => status(id).status !== "running", 30_000);
+    // Recovery requeues and re-claims within milliseconds, so wait on the attempt count rather than a transient status.
+    await waitFor("requeued and restarted", () => get<{ attempts: number }>("SELECT attempts FROM jobs WHERE ref_id = ?", id)!.attempts >= 2, 60_000);
     await waitFor("completed", () => status(id).status === "completed", 120_000);
     const job = get<{ attempts: number; status: string }>("SELECT attempts, status FROM jobs WHERE ref_id = ?", id)!;
     expect(job).toMatchObject({ attempts: 2, status: "completed" });

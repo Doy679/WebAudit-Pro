@@ -1,4 +1,4 @@
-import { all, get, run, newId, now, tx } from "./db";
+import { all, get, run, newId, now, tx, safeJson, jsonArray } from "./db";
 import type { User } from "./auth";
 import { assertCan, assertProjectAccess, ForbiddenError, NotFoundError, projectScope } from "./permissions";
 
@@ -62,6 +62,8 @@ export interface IssueRow {
   source_ref: string | null;
   provider_ts: string | null;
   metric_key: string | null;
+  /** True when a stored JSON field was missing or malformed and defaults were used. */
+  dataWarning?: boolean;
 }
 
 const SORTS: Record<NonNullable<IssueFilters["sort"]>, string> = {
@@ -76,12 +78,34 @@ const SORTS: Record<NonNullable<IssueFilters["sort"]>, string> = {
 const LATEST_RUNS = `SELECT (SELECT r.id FROM audit_runs r WHERE r.project_id = p.id AND (r.status = 'completed' OR r.findings > 0)
                      ORDER BY r.created_at DESC LIMIT 1) FROM projects p`;
 
-const parse = (r: Record<string, unknown>): IssueRow => ({
-  ...(r as unknown as IssueRow),
-  pages: JSON.parse(r.pages_json as string),
-  viewports: JSON.parse(r.viewports_json as string),
-  evidence: JSON.parse(r.evidence_json as string),
-});
+const EMPTY_EVIDENCE = { screenshots: [], boxes: [], capturedAt: "" };
+
+/** Turns a DB row into an IssueRow; malformed JSON falls back to safe defaults and sets dataWarning. */
+const parse = (r: Record<string, unknown>): IssueRow => {
+  let warn = false;
+  const flag = () => { warn = true; };
+  const pages = safeJson<string[]>(r.pages_json, [], flag);
+  const viewports = safeJson<number[]>(r.viewports_json, [], flag);
+  const ev = safeJson<Partial<IssueRow["evidence"]>>(r.evidence_json, EMPTY_EVIDENCE, flag);
+  const { pages_json: _p, viewports_json: _v, evidence_json: _e, occurrences_json: _o, ...rest } = r;
+  return {
+    ...(rest as unknown as IssueRow),
+    pages: Array.isArray(pages) && pages.length ? pages : [r.url as string],
+    viewports: Array.isArray(viewports) ? viewports : [],
+    evidence: {
+      ...EMPTY_EVIDENCE, ...(ev && typeof ev === "object" ? ev : {}),
+      screenshots: Array.isArray(ev?.screenshots) ? ev.screenshots : [],
+      boxes: Array.isArray(ev?.boxes) ? ev.boxes : [],
+    },
+    ...(warn ? { dataWarning: true } : {}),
+  };
+};
+
+/** Columns for list views: everything except the large per-occurrence evidence (up to ~90 KB per finding). */
+const LIST_COLUMNS = `i.id, i.run_id, i.project_id, i.code, i.fingerprint, i.type, i.rule, i.kind, i.severity, i.confidence, i.title, i.url,
+  i.pages_json, i.viewports_json, i.selector, i.elementor_id, i.shared_template, i.instance_count, i.current_value, i.proposed_value,
+  i.recommendation, i.evidence_json, i.captured_at, i.verification_status, i.review_status, i.implementation_status, i.priority,
+  i.assignee_id, i.notes, i.updated_at, i.provider, i.source_ref, i.provider_ts, i.metric_key`;
 
 export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; total: number; page: number; pageSize: number } {
   const scope = projectScope(user, "i.project_id");
@@ -98,8 +122,8 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   eq("i.review_status", f.review);
   eq("i.implementation_status", f.implementation);
   eq("i.provider", f.provider);
-  if (f.url) { where.push("EXISTS (SELECT 1 FROM json_each(i.pages_json) WHERE value = ?)"); params.push(f.url); }
-  if (f.viewport) { where.push("EXISTS (SELECT 1 FROM json_each(i.viewports_json) WHERE value = ?)"); params.push(f.viewport); }
+  if (f.url) { where.push(`EXISTS (SELECT 1 FROM json_each(${jsonArray("i.pages_json")}) WHERE value = ?)`); params.push(f.url); }
+  if (f.viewport) { where.push(`EXISTS (SELECT 1 FROM json_each(${jsonArray("i.viewports_json")}) WHERE value = ?)`); params.push(f.viewport); }
   if (f.assignee === "none") where.push("i.assignee_id IS NULL");
   else eq("i.assignee_id", f.assignee);
   if (f.minConfidence) { where.push("i.confidence >= ?"); params.push(f.minConfidence); }
@@ -114,10 +138,10 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   const pageSize = Math.min(Math.max(f.pageSize ?? 50, 1), 1000);
   const page = Math.max(f.page ?? 1, 1);
   const rows = all<Record<string, unknown>>(
-    `SELECT i.*, p.name AS project_name, u.name AS assignee_name,
+    `SELECT ${LIST_COLUMNS}, p.name AS project_name, u.name AS assignee_name,
        (SELECT d.decision FROM client_decisions d WHERE d.issue_id = i.id ORDER BY d.created_at DESC LIMIT 1) AS client_decision
      FROM issues i JOIN projects p ON p.id = i.project_id LEFT JOIN users u ON u.id = i.assignee_id
-     WHERE ${whereSql} ORDER BY ${SORTS[f.sort ?? "severity"]} LIMIT ? OFFSET ?`,
+     WHERE ${whereSql} ORDER BY ${SORTS[f.sort as keyof typeof SORTS] ?? SORTS.severity} LIMIT ? OFFSET ?`,
     ...params, pageSize, (page - 1) * pageSize,
   ).map(parse);
   return { rows, total, page, pageSize };
@@ -142,9 +166,13 @@ export function getIssue(user: User, id: string): IssueDetail {
      WHERE i.id = ?`, id);
   if (!r) throw new NotFoundError("Finding not found.");
   assertProjectAccess(user, r.project_id as string);
+  const base = parse(r);
+  let occWarn = false;
+  const occurrences = safeJson<IssueDetail["occurrences"]>(r.occurrences_json, [], () => { occWarn = true; });
   return {
-    ...parse(r),
-    occurrences: JSON.parse(r.occurrences_json as string),
+    ...base,
+    ...(occWarn ? { dataWarning: true } : {}),
+    occurrences: Array.isArray(occurrences) ? occurrences : [],
     run_status: r.run_status as string,
     run_created_at: r.run_created_at as string,
     run_dir: r.run_dir as string | null,
@@ -229,7 +257,7 @@ export function filterOptions(user: User, runId?: string, projectId?: string) {
   return {
     types: distinct("i.type"),
     providers: distinct("i.provider"),
-    pages: all<{ v: string }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(i.pages_json) j WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v),
-    viewports: all<{ v: number }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(i.viewports_json) j WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v),
+    pages: all<{ v: string }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(${jsonArray("i.pages_json")}) j WHERE ${scope.sql} AND ${runSql} ORDER BY v`, ...params).map((r) => r.v),
+    viewports: all<{ v: number }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(${jsonArray("i.viewports_json")}) j WHERE ${scope.sql} AND ${runSql} AND typeof(j.value) = 'integer' ORDER BY v`, ...params).map((r) => r.v),
   };
 }

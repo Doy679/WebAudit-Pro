@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
-import { filterOptions, listIssues, type IssueFilters } from "@/server/issues";
+import { filterOptions, listIssues } from "@/server/issues";
+import { parseIssueSearchParams } from "@/server/issue-filters";
 import { listProjects } from "@/server/projects";
 import { listRuns } from "@/server/runs";
 import { all } from "@/server/db";
@@ -18,16 +19,12 @@ type SP = Record<string, string | undefined>;
 export default async function IssuesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const filters: IssueFilters = {
-    runId: sp.run, projectId: sp.project, url: sp.url, type: sp.type, severity: sp.severity, kind: sp.kind,
-    viewport: sp.viewport ? Number(sp.viewport) : undefined, verification: sp.verification, review: sp.review,
-    assignee: sp.assignee, provider: sp.provider, minConfidence: sp.conf ? Number(sp.conf) : undefined, q: sp.q,
-    sort: (sp.sort as IssueFilters["sort"]) ?? "severity", page: sp.page ? Number(sp.page) : 1, pageSize: sp.size ? Number(sp.size) : 50,
-  };
+  // Every URL parameter is validated here; empty values (from the filter form) mean "no filter".
+  const filters = parseIssueSearchParams(sp);
   const { rows, total, page, pageSize } = listIssues(user, filters);
-  const opts = filterOptions(user, sp.run, sp.project);
+  const opts = filterOptions(user, filters.runId, filters.projectId);
   const projects = listProjects(user);
-  const runs = listRuns(user, { projectId: sp.project, status: "completed", limit: 50 });
+  const runs = listRuns(user, { projectId: filters.projectId, status: "completed", limit: 50 });
   const scope = projectScope(user, "m.project_id");
   const people = all<{ id: string; name: string }>(
     `SELECT DISTINCT u.id, u.name FROM project_members m JOIN users u ON u.id = m.user_id WHERE ${scope.sql} AND u.disabled = 0 ORDER BY u.name`, ...scope.params);
@@ -38,11 +35,11 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   };
   const reviewer = can(user, "issue:review");
 
-  const select = (name: string, labelText: string, options: [string, string][]) => (
+  const select = (name: string, labelText: string, options: [string, string][], allLabel: string | null = "All") => (
     <label className="block text-xs font-medium text-slate-600">
       {labelText}
       <select name={name} defaultValue={sp[name] ?? ""} className={cx(input, "mt-1 py-1.5")}>
-        <option value="">All</option>
+        {allLabel !== null && <option value="">{allLabel}</option>}
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </label>
@@ -70,7 +67,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
           {select("assignee", "Assigned developer", [["none", "Unassigned"], ...people.map((p) => [p.id, p.name] as [string, string])])}
           {select("provider", "Source", opts.providers.map((p) => [p, PROVIDER_LABEL[p] ?? p]))}
           {select("conf", "Min confidence", [["0.5", "50%+"], ["0.7", "70%+"], ["0.85", "85%+"]])}
-          {select("sort", "Sort by", [["severity", "Severity"], ["confidence", "Confidence"], ["page", "Page"], ["code", "Issue ID"], ["updated", "Recently updated"]])}
+          {select("sort", "Sort by", [["severity", "Severity"], ["confidence", "Confidence"], ["page", "Page"], ["code", "Issue ID"], ["updated", "Recently updated"]], null)}
         </div>
         <div className="mt-3 flex gap-2">
           <button className={btn.primary}>Apply filters</button>
