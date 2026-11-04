@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
 import { can } from "@/server/permissions";
 import { googleStatus } from "@/server/google/config";
-import { projectGoogle, psiResults, googleTasks, type PsiRow } from "@/server/google/service";
+import { projectGoogle, psiResults, latestPsiPerKey, googleTasks, type PsiRow } from "@/server/google/service";
 import { fmtFieldValue } from "@/server/google/psi";
 import { listRuns, runPages } from "@/server/runs";
 import { queuePsiAction } from "@/app/google-actions";
@@ -28,7 +28,8 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
   const pg = projectGoogle(user, project.id);
   const all = psiResults(user, { projectId: project.id, limit: 500 });
   const pending = googleTasks(user, project.id, 50).filter((t) => t.type === "psi" && (t.status === "pending" || t.status === "running"));
-  const latest = [...new Map(all.map((r) => [`${r.url}|${r.strategy}`, r])).values()]; // newest first per URL + device
+  // BUG-03: a Map built from a newest-first list kept the *oldest* row per key. Use the shared selector.
+  const latest = latestPsiPerKey(user, project.id);
   const lastRun = listRuns(user, { projectId: project.id, status: "completed", limit: 1 })[0];
   const suggested = lastRun ? runPages(lastRun.id).filter((p) => p.ok).map((p) => p.url).slice(0, Math.min(5, pg.psi_max_urls)) : [project.base_url];
   const detail = sp.id ? all.find((r) => r.id === sp.id) : undefined;

@@ -384,6 +384,21 @@ export function latestPsi(user: User, projectId: string, url: string, strategy: 
   return r ? toPsi(r) : undefined;
 }
 
+/**
+ * The current PageSpeed result for every URL + device of a project: the newest completed result
+ * (ties on fetched_at broken by insertion order), or the newest failure if that URL never succeeded.
+ * Shared by every screen that shows "latest" PageSpeed values (BUG-03).
+ */
+export function latestPsiPerKey(user: User, projectId: string): PsiRow[] {
+  assertProjectAccess(user, projectId);
+  return all<Record<string, unknown>>(
+    `SELECT p.* FROM psi_results p
+     WHERE p.project_id = ? AND p.rowid = (
+       SELECT x.rowid FROM psi_results x WHERE x.project_id = p.project_id AND x.url = p.url AND x.strategy = p.strategy
+       ORDER BY (x.status = 'ok') DESC, x.fetched_at DESC, x.rowid DESC LIMIT 1)
+     ORDER BY p.url, p.strategy`, projectId).map(toPsi);
+}
+
 export function psiResults(user: User, opts: { projectId?: string; runId?: string; url?: string; strategy?: Strategy; limit?: number }): (PsiRow & { project_name: string })[] {
   const scope = projectScope(user, "p.project_id");
   const where = [scope.sql];
