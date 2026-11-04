@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 
 /**
  * Shown when a page fails to render. Server error details are never shown in the browser; the reference

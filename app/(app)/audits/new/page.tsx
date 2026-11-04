@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { listProjects } from "@/server/projects";
 import { googleStatus } from "@/server/google/config";

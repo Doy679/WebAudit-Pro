@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { ReactNode } from "react";
 import { cx, input, label } from "./ui";
 import type { GscStatus } from "@/server/google/gsc-status";

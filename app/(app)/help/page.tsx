@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { Card, PageHeader } from "@/components/ui";
 import { estimateAuditDuration } from "@/server/runs";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { filterOptions, listIssues, quickFilterCounts } from "@/server/issues";
 import { parseIssueSearchParams, QUICK_FILTERS } from "@/server/issue-filters";

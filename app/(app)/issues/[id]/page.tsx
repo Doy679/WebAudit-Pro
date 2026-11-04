@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
 import { getIssue, reviewActionsFor } from "@/server/issues";

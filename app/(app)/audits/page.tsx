@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { cancellationNote, listRuns } from "@/server/runs";
 import { listProjects } from "@/server/projects";

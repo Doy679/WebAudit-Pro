@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { overviewStats, recentActivity, websiteSummaries } from "@/server/stats";
 import { onboardingState } from "@/server/onboarding";

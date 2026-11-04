@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/app/lib/session";
 import { listPackages, packageDecisions } from "@/server/approvals";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { listRuns } from "@/server/runs";
 import { exportPreview, listExports, reportCategories, type ExportFilters } from "@/server/exports";

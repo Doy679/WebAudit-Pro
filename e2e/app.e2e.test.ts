@@ -491,6 +491,27 @@ describe("WebAudit Pro end to end", () => {
     });
   });
 
+  it("BUG-10: loading Overview and Issues makes no failing background requests (prefetch is off by design)", async () => {
+    const rsc: string[] = [];
+    const failed: string[] = [];
+    const bad: string[] = [];
+    const onReq = (r: import("playwright").Request) => { if (r.url().includes("_rsc=")) rsc.push(new URL(r.url()).pathname); };
+    const onFail = (r: import("playwright").Request) => failed.push(`${r.failure()?.errorText} ${new URL(r.url()).pathname}`);
+    const onRes = (r: import("playwright").Response) => { if (r.status() >= 500) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); };
+    page.on("request", onReq); page.on("requestfailed", onFail); page.on("response", onRes);
+    try {
+      for (const path of ["/", `/issues?run=${runId}`]) {
+        await page.goto(`${APP}${path}`);
+        await page.waitForTimeout(3000); // the retest waited 5 s on Overview; prefetches fire within the first second
+      }
+    } finally {
+      page.off("request", onReq); page.off("requestfailed", onFail); page.off("response", onRes);
+    }
+    expect(bad).toEqual([]);
+    expect(rsc).toEqual([]); // no background server renders the user didn't ask for
+    expect(failed.filter((f) => !f.includes("/api/evidence/"))).toEqual([]);
+  });
+
   it("BUG-10: navigating every sidebar link and Google tab uses client navigation with no 5xx responses", async () => {
     const bad: string[] = [];
     const docs: string[] = [];

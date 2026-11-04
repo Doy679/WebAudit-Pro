@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { pageSpeedHealth } from "@/server/google/health-status";
 import { can } from "@/server/permissions";
