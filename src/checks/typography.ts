@@ -32,18 +32,25 @@ export function typographyChecks(page: PageSnapshot, tokens: Tokens): RawIssue[]
     }
 
     const lh = e.css.lineHeight;
-    if (e.role === "text" && lh && fs <= 20 && lh / fs < tokens.bodyLineHeightMin) {
+    // BUG-25: an element shorter than half a line of text shows no text (e.g. an empty spacer <p>), so its
+    // line-height can't make anything cramped. Ratios below 0.5 would make lines overlap: possible, but far more
+    // often a spacer or styling trick, so they go to review rather than being reported as a confident fix.
+    const visible = e.box.h >= fs * 0.5;
+    if (e.role === "text" && lh && fs <= 20 && lh / fs < tokens.bodyLineHeightMin && visible) {
+      const implausible = lh / fs < 0.5;
       issues.push(
         makeIssue(page, {
           type: "typography",
           rule: "line-height-tight",
-          kind: "recommendation",
+          kind: implausible ? "needs-review" : "recommendation",
           severity: "low",
-          confidence: 0.7,
+          confidence: implausible ? 0.4 : 0.7,
           title: "Body text lines are cramped",
           current: `line-height: ${(lh / fs).toFixed(2)} (${lh}px on ${fs}px text)`,
           proposed: `line-height: ${tokens.bodyLineHeightMin}–1.6`,
-          recommendation: "Increase line height for paragraphs." + elementorHint(e, "Style → Typography → Line-Height"),
+          recommendation: (implausible
+            ? "This line height is so small that lines would overlap. Check visually whether this is real text or a spacer before changing it. "
+            : "") + "Increase line height for paragraphs." + elementorHint(e, "Style → Typography → Line-Height"),
           element: e,
         }),
       );

@@ -353,3 +353,26 @@ describe("BUG-13: structured-data page counts", async () => {
   });
 });
 const run_ = run;
+
+describe("BUG-25: implausible line-height measurements", async () => {
+  const { typographyChecks } = await import("../src/checks/typography");
+  const { el, page, tokens } = await import("./helpers");
+  const lineIssues = (lineHeight: number, h: number) =>
+    typographyChecks(page({ elements: [el({ selector: "p.x", role: "text", tag: "p", text: "Janice Stowers Mortgage Team", css: { fontSize: 14, lineHeight }, box: { x: 0, y: 0, w: 600, h } })] }), tokens)
+      .filter((i) => i.rule === "line-height-tight");
+
+  it("ignores spacer elements too short to show a line of text (the reported 668×1 px paragraph)", () => {
+    expect(lineIssues(1.4, 1)).toHaveLength(0);
+  });
+
+  it("sends physically implausible ratios to review instead of a confident recommendation", () => {
+    const [i] = lineIssues(1.4, 40);
+    expect(i).toMatchObject({ kind: "needs-review" });
+    expect(i.recommendation).toMatch(/check visually/i);
+  });
+
+  it("keeps real cramped text as a recommendation", () => {
+    expect(lineIssues(16, 48)[0]).toMatchObject({ kind: "recommendation" }); // 1.14 on 14px text
+    expect(lineIssues(22, 66)).toHaveLength(0); // 1.57 is fine
+  });
+});
