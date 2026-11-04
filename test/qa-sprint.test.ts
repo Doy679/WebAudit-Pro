@@ -121,7 +121,7 @@ describe("BUG-02: one Search Console status for every screen", () => {
   it("walks through not configured → client configured → connected → API error → no property → ready", async () => {
     expect(searchConsoleStatus(admin, projectId).state).toBe("not-configured");
 
-    config.saveGoogleCredentials({ oauthClientId: "123.apps.googleusercontent.com", oauthClientSecret: "test-secret" });
+    config.saveGoogleCredentials({ oauthClientId: "123-test.apps.googleusercontent.com", oauthClientSecret: "GOCSPX-test-secret" });
     expect(searchConsoleStatus(admin, projectId)).toMatchObject({ state: "client-configured", action: { href: expect.stringContaining("/google/connections") } });
 
     connectionId = newId();
@@ -161,7 +161,7 @@ function outsiderInProject() {
 
 describe("BUG-04: PageSpeed requests are idempotent and cache reuse doesn't inflate history", () => {
   it("a second submit while the same URL + device is still queued creates no new request", () => {
-    config.saveGoogleCredentials({ apiKey: "AIzaTESTKEY" });
+    config.saveGoogleCredentials({ apiKey: `AIza${"T".repeat(35)}` });
     const urls = ["https://capitalhomemortgage.com/q1/", "https://capitalhomemortgage.com/q2/"];
     const first = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
     expect(first.queued).toHaveLength(4);

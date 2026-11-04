@@ -3,6 +3,7 @@
 // Only the webmasters.readonly scope is requested. No submissions, deletions or verification requests are made.
 import { createHash, randomBytes } from "node:crypto";
 import { GSC_SCOPE } from "./config";
+import { redactSecrets } from "./credentials";
 import type { ProviderFinding } from "./types";
 
 /** What went wrong, in terms a user can act on. Google uses HTTP 403 for both a disabled API and a missing property permission. */
@@ -28,7 +29,7 @@ export interface GoogleErrorInfo { kind: GoogleErrorKind; message: string; techn
  */
 export function classifyGoogleError(status: number, body: Json): GoogleErrorInfo {
   const err = body?.error ?? {};
-  const raw = typeof err.message === "string" ? err.message : `HTTP ${status}`;
+  const raw = redactSecrets(typeof err.message === "string" ? err.message : `HTTP ${status}`);
   const reasons: string[] = [
     ...((err.details ?? []) as Json[]).map((d) => d?.reason),
     ...((err.errors ?? []) as Json[]).map((e) => e?.reason),
@@ -91,7 +92,7 @@ async function tokenRequest(params: Record<string, string>, fetchImpl: Fetch): P
   const body = (await res.json().catch(() => ({}))) as Json;
   if (!res.ok) {
     if (body.error === "invalid_grant") throw new GscAuthError("Google no longer accepts this connection (it was revoked or expired). Reconnect Google.");
-    throw new GscError(`Google token request failed: ${body.error_description ?? body.error ?? res.status}`);
+    throw new GscError(redactSecrets(`Google token request failed: ${body.error_description ?? body.error ?? res.status}`));
   }
   return body;
 }
@@ -130,7 +131,7 @@ async function api(accessToken: string, url: string, init: { method?: string; bo
   } catch (e) {
     const err = new GscError("Couldn't reach Google Search Console. Check the internet connection and try again.");
     err.kind = "network";
-    err.technical = (e as Error).message;
+    err.technical = redactSecrets((e as Error).message);
     throw err;
   }
   const body = (await res.json().catch(() => ({}))) as Json;

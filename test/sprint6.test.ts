@@ -23,7 +23,7 @@ let projectId: string;
 let respond: (url: string) => Response;
 const calls: string[] = [];
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
-const KEY = "AIzaSyTESTKEY-never-shown-1234567890";
+const KEY = `AIzaSyTESTKEY-never-shown-${"1".repeat(13)}`; // synthetic, API key shape
 
 beforeAll(() => {
   admin = auth.createUser({ email: "admin@example.com", name: "Admin", password: "correct horse battery", role: "admin" });
@@ -99,7 +99,7 @@ describe("NEW-01: one PageSpeed health state, from fresh results only", () => {
   });
 
   it("saving a new key starts a fresh 'untested' state; a page-specific problem is not an integration failure", async () => {
-    config.saveGoogleCredentials({ apiKey: "AIzaSyREPLACEDKEY000000000000000000000" });
+    config.saveGoogleCredentials({ apiKey: `AIzaSyREPLACEDKEY${"0".repeat(22)}` });
     expect(pageSpeedHealth(admin).state).toBe("untested");
     respond = () => json(google(400, "Lighthouse returned error: NO_FCP"), 400);
     expect(await runTask("https://capitalhomemortgage.com/blank/", true)).toBe("failed");

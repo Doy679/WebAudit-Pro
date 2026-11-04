@@ -2,14 +2,15 @@
 // Google fetches the page itself; we only call googleapis.com. Lab (Lighthouse) and field (CrUX) data are kept apart.
 import type { FieldData, FieldKey, FieldMetric, LabMetric, LhAudit, ProviderFinding, PsiResult, Strategy } from "./types";
 import { cruxCategory } from "./crux";
+import { credentialKind, isGoogleApiKey, redactSecrets } from "./credentials";
 
 export const PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed";
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 
 /** NEW-01: what went wrong with a PageSpeed request, in terms an admin can act on. */
-export type PsiErrorKind = "key-rejected" | "api-disabled" | "key-restricted" | "forbidden" | "quota" | "transient" | "network" | "page";
+export type PsiErrorKind = "invalid-format" | "key-rejected" | "api-disabled" | "key-restricted" | "forbidden" | "quota" | "transient" | "network" | "page";
 /** Kinds that say something about the integration (key/API/quota/connectivity), not about one page. */
-export const INTEGRATION_KINDS: PsiErrorKind[] = ["key-rejected", "api-disabled", "key-restricted", "forbidden", "quota", "transient", "network"];
+export const INTEGRATION_KINDS: PsiErrorKind[] = ["invalid-format", "key-rejected", "api-disabled", "key-restricted", "forbidden", "quota", "transient", "network"];
 
 class PsiError extends Error {
   kind: PsiErrorKind = "transient";
@@ -21,8 +22,17 @@ export class PsiConfigError extends PsiError { override kind: PsiErrorKind = "fo
 export class PsiPageError extends PsiError { override kind: PsiErrorKind = "page"; }
 export class PsiTransientError extends PsiError {}
 
-/** Removes anything that looks like an API key from text that may be shown or stored. */
-export const redactKey = (s: string) => s.replace(/AIza[0-9A-Za-z_-]{10,}/g, "[key hidden]").replace(/([?&]key=)[^&\s]+/gi, "$1[key hidden]");
+/** Removes API keys, client secrets, tokens and secret URL parameters from text that may be shown or stored. */
+export const redactKey = redactSecrets;
+
+/** GQA-01: the saved value isn't a Google API key, so no request is sent. */
+export function invalidKeyError(apiKey: string | undefined): PsiError {
+  const looksLike = credentialKind(apiKey);
+  const e = new PsiConfigError(`The saved PageSpeed credential isn't a Google API key${looksLike === "oauth-secret" ? " (it appears to be an OAuth client secret)" : looksLike === "oauth-client-id" ? " (it appears to be an OAuth client ID)" : ""}. No request was sent to Google. An admin needs to save the API key from Google Cloud → APIs & Services → Credentials → API keys.`);
+  e.kind = "invalid-format";
+  e.technical = `Saved value is not a Google API key (looks like: ${looksLike}). Request not sent.`;
+  return e;
+}
 
 export interface PsiErrorInfo { kind: PsiErrorKind; message: string; technical: string }
 
@@ -163,6 +173,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Calls the PSI API with retry/backoff for transient errors; quota-per-day and bad keys fail fast. */
 export async function runPsi(url: string, strategy: Strategy, opts: PsiOptions): Promise<PsiResult> {
+  if (!isGoogleApiKey(opts.apiKey)) throw invalidKeyError(opts.apiKey);
   const fetchImpl = opts.fetchImpl ?? fetch;
   const q = new URLSearchParams({ url, strategy });
   for (const c of CATEGORIES) q.append("category", c);

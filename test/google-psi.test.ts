@@ -74,37 +74,40 @@ describe("psiFindings", () => {
   });
 });
 
+// Synthetic key in the documented API key shape (runPsi refuses other values without calling Google).
+const KEY = `AIza${"K".repeat(35)}`;
+
 describe("runPsi", () => {
   it("requests all four categories with the key and strategy", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => json(psiSample()));
-    await runPsi("https://example.com/", "desktop", { apiKey: "KEY", fetchImpl, retries: 0 });
+    await runPsi("https://example.com/", "desktop", { apiKey: KEY, fetchImpl, retries: 0 });
     const url = new URL(fetchImpl.mock.calls[0][0] as string);
     expect(url.origin + url.pathname).toBe("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
     expect(url.searchParams.get("strategy")).toBe("desktop");
     expect(url.searchParams.getAll("category")).toEqual(["performance", "accessibility", "best-practices", "seo"]);
-    expect(url.searchParams.get("key")).toBe("KEY");
+    expect(url.searchParams.get("key")).toBe(KEY);
   });
 
   it("stops on a daily quota error instead of retrying", async () => {
     const fetchImpl = vi.fn(async () => json({ error: { code: 429, message: "Quota exceeded for quota metric 'Queries' and limit 'Queries per day'", status: "RESOURCE_EXHAUSTED" } }, 429));
-    await expect(runPsi("https://example.com/", "mobile", { apiKey: "K", fetchImpl, retries: 3, backoffMs: 1 })).rejects.toBeInstanceOf(PsiQuotaError);
+    await expect(runPsi("https://example.com/", "mobile", { apiKey: KEY, fetchImpl, retries: 3, backoffMs: 1 })).rejects.toBeInstanceOf(PsiQuotaError);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("retries transient errors with backoff", async () => {
     let n = 0;
     const fetchImpl = vi.fn(async () => (++n < 3 ? json({ error: { code: 500, message: "backend" } }, 500) : json(psiSample())));
-    const r = await runPsi("https://example.com/", "mobile", { apiKey: "K", fetchImpl, retries: 3, backoffMs: 1 });
+    const r = await runPsi("https://example.com/", "mobile", { apiKey: KEY, fetchImpl, retries: 3, backoffMs: 1 });
     expect(r.scores.performance).toBe(42);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("reports invalid keys and Lighthouse page failures distinctly", async () => {
-    await expect(runPsi("https://example.com/", "mobile", { apiKey: "bad", fetchImpl: async () => json({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }, 400), retries: 0 }))
+    await expect(runPsi("https://example.com/", "mobile", { apiKey: KEY, fetchImpl: async () => json({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }, 400), retries: 0 }))
       .rejects.toBeInstanceOf(PsiConfigError);
     const failed = psiSample();
     (failed.lighthouseResult as Record<string, unknown>).runtimeError = { code: "FAILED_DOCUMENT_REQUEST", message: "Lighthouse was unable to reliably load the page" };
-    await expect(runPsi("https://example.com/", "mobile", { apiKey: "K", fetchImpl: async () => json(failed), retries: 0 })).rejects.toBeInstanceOf(PsiPageError);
+    await expect(runPsi("https://example.com/", "mobile", { apiKey: KEY, fetchImpl: async () => json(failed), retries: 0 })).rejects.toBeInstanceOf(PsiPageError);
   });
 });
 

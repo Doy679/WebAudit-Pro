@@ -153,6 +153,11 @@ CREATE TABLE IF NOT EXISTS google_tasks (
   error TEXT, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS google_tasks_status ON google_tasks(status, created_at);
+-- GQA-07: who added, replaced or removed a Google credential, and when. Never the value.
+CREATE TABLE IF NOT EXISTS credential_events (
+  id TEXT PRIMARY KEY, credential TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('added','replaced','removed')),
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL
+);
 `;
 
 /** Additive migrations for databases created before a column existed. */
@@ -171,6 +176,13 @@ function migrate(db: DB) {
   if (!gc.has("last_error_kind")) db.exec("ALTER TABLE google_connections ADD COLUMN last_error_kind TEXT");
   if (!gc.has("last_error_detail")) db.exec("ALTER TABLE google_connections ADD COLUMN last_error_detail TEXT");
   if (!gc.has("last_check_at")) db.exec("ALTER TABLE google_connections ADD COLUMN last_check_at TEXT");
+  // GQA-04: last successful and last failed Search Console check, kept separately (older checks keep NULL).
+  if (!gc.has("last_success_at")) db.exec("ALTER TABLE google_connections ADD COLUMN last_success_at TEXT");
+  if (!gc.has("last_failure_at")) db.exec("ALTER TABLE google_connections ADD COLUMN last_failure_at TEXT");
+  // GQA-06: whether a finished PageSpeed task got a fresh Google result or reused a cached one (older tasks: NULL).
+  const gt = cols("google_tasks");
+  if (!gt.has("outcome")) db.exec("ALTER TABLE google_tasks ADD COLUMN outcome TEXT");
+  if (!gt.has("source_fetched_at")) db.exec("ALTER TABLE google_tasks ADD COLUMN source_fetched_at TEXT");
   // Who cancelled an audit (BUG-21); older cancellations keep NULL.
   if (!cols("audit_runs").has("cancelled_by")) db.exec("ALTER TABLE audit_runs ADD COLUMN cancelled_by TEXT REFERENCES users(id)");
   // NEW-01: Google's own error text for a failed PageSpeed request (key removed; admins only).

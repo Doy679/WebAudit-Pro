@@ -43,9 +43,9 @@ describe("credentials", () => {
   });
 
   it("stores the API key and OAuth secret encrypted", () => {
-    config.saveGoogleCredentials({ apiKey: "AIzaTESTKEY", oauthClientId: "123.apps.googleusercontent.com", oauthClientSecret: "GOCSPX-secret" });
+    config.saveGoogleCredentials({ apiKey: `AIza${"T".repeat(35)}`, oauthClientId: "123-test.apps.googleusercontent.com", oauthClientSecret: "GOCSPX-secret" });
     const rows = all<{ key: string; value: string }>("SELECT key, value FROM app_settings WHERE key LIKE 'google.%'");
-    expect(rows.find((r) => r.key === "google.apiKey")!.value).not.toContain("AIzaTESTKEY");
+    expect(rows.find((r) => r.key === "google.apiKey")!.value).not.toContain(`AIza${"T".repeat(35)}`);
     expect(rows.find((r) => r.key === "google.oauthClientSecret")!.value).not.toContain("GOCSPX");
     expect(config.googleStatus()).toMatchObject({ apiKeyConfigured: true, oauthConfigured: true });
   });

@@ -5,9 +5,10 @@ import { all, get, run, newId, now, tx } from "../db";
 import type { User } from "../auth";
 import { assertCan, assertProjectAccess, ForbiddenError, NotFoundError, projectScope } from "../permissions";
 import { getProject, isInScope } from "../projects";
-import { decryptSecret, encryptSecret } from "../settings";
+import { decryptSecret, encryptSecret, getSetting, setSetting } from "../settings";
 import { googleConfig } from "./config";
-import { runPsi, psiFindings, psiReportUrl, PsiConfigError, PsiPageError, PsiQuotaError } from "./psi";
+import { isGoogleApiKey, redactSecrets } from "./credentials";
+import { runPsi, psiFindings, psiReportUrl, invalidKeyError, PsiConfigError, PsiPageError, PsiQuotaError } from "./psi";
 import { queryCrux } from "./crux";
 import {
   authUrl, pkcePair, exchangeCode, refreshAccess, revokeToken, listSites, searchAnalytics, listSitemaps, inspectUrl,
@@ -127,13 +128,15 @@ export async function listProperties(user: User, connectionId: string): Promise<
     const sites = await listSites(await accessToken(connectionId), googleFetch);
     sitesCache.set(connectionId, { at: Date.now(), sites });
     failedCache.delete(connectionId);
-    run("UPDATE google_connections SET last_error = NULL, last_error_kind = NULL, last_error_detail = NULL, last_check_at = ? WHERE id = ?", now(), connectionId);
+    const at = now();
+    run("UPDATE google_connections SET last_error = NULL, last_error_kind = NULL, last_error_detail = NULL, last_check_at = ?, last_success_at = ? WHERE id = ?", at, at, connectionId);
     return sites;
   } catch (e) {
     const err = e as GscError;
     failedCache.set(connectionId, { at: Date.now(), error: err });
-    run("UPDATE google_connections SET last_error = ?, last_error_kind = ?, last_error_detail = ?, last_check_at = ? WHERE id = ?",
-      err.message, err.kind ?? "other", err.technical ?? null, now(), connectionId);
+    const at = now();
+    run("UPDATE google_connections SET last_error = ?, last_error_kind = ?, last_error_detail = ?, last_check_at = ?, last_failure_at = ? WHERE id = ?",
+      redactSecrets(err.message), err.kind ?? "other", err.technical ? redactSecrets(err.technical) : null, at, at, connectionId);
     throw e;
   }
 }
@@ -291,19 +294,23 @@ export async function processGoogleTask(taskId: string, opts: { retries?: number
   run("UPDATE google_tasks SET status = 'running', started_at = COALESCE(started_at, ?) WHERE id = ?", now(), taskId);
   const payload = JSON.parse(t.payload_json);
   let error: string | null = null;
+  let outcome: PsiOutcome | null = null;
   try {
-    if (t.type === "psi") await doPsi(t, payload, opts.retries);
+    if (t.type === "psi") outcome = await doPsi(t, payload, opts.retries);
     else await doGsc(t, t.type, payload);
   } catch (e) {
-    error = (e as Error).message;
+    error = redactSecrets((e as Error).message);
   }
-  run("UPDATE google_tasks SET status = ?, error = ?, finished_at = ? WHERE id = ?", error ? "failed" : "completed", error, now(), taskId);
+  run("UPDATE google_tasks SET status = ?, error = ?, finished_at = ?, outcome = ?, source_fetched_at = ? WHERE id = ?",
+    error ? "failed" : "completed", error, now(), t.type === "psi" ? (error ? "failed" : outcome!.outcome) : null, outcome?.sourceAt ?? null, taskId);
   return error ? "failed" : "completed";
 }
 
 type Task = { id: string; project_id: string; run_id: string | null; created_by: string };
+/** GQA-06: a finished PageSpeed task either got a new Google measurement or reused a stored one. */
+type PsiOutcome = { outcome: "fresh" | "cached"; sourceAt: string };
 
-async function doPsi(t: Task, p: { url: string; strategy: Strategy; force: boolean }, retries?: number) {
+async function doPsi(t: Task, p: { url: string; strategy: Strategy; force: boolean }, retries?: number): Promise<PsiOutcome> {
   if (!p.force) {
     const cached = get<{ id: string; fetched_at: string; analysis_ts: string; lighthouse_version: string; result_json: string; crux_json: string | null }>(
       "SELECT * FROM psi_results WHERE project_id = ? AND url = ? AND strategy = ? AND status = 'ok' ORDER BY fetched_at DESC LIMIT 1", t.project_id, p.url, p.strategy);
@@ -315,21 +322,25 @@ async function doPsi(t: Task, p: { url: string; strategy: Strategy; force: boole
       if (!linked) run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, analysis_ts, lighthouse_version, result_json, crux_json, created_by)
            VALUES (?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)`, newId(), t.project_id, t.run_id, p.url, p.strategy, cached.fetched_at, cached.analysis_ts, cached.lighthouse_version, cached.result_json, cached.crux_json, t.created_by);
       if (t.run_id) importProviderFindings(t.run_id, psiFindings(JSON.parse(cached.result_json), p.url));
-      return;
+      return { outcome: "cached", sourceAt: cached.fetched_at };
     }
   }
   const cfg = googleConfig();
   try {
-    const result = await runPsi(p.url, p.strategy, { apiKey: cfg.apiKey!, fetchImpl: googleFetch, retries });
+    // GQA-01: runPsi refuses a value that isn't an API key before any request is made.
+    const result = await runPsi(p.url, p.strategy, { apiKey: cfg.apiKey ?? "", fetchImpl: googleFetch, retries });
     let crux: FieldData | null = null;
     if (cfg.cruxEnabled) crux = await queryCrux(p.url, p.strategy, cfg.apiKey!, googleFetch).catch(() => null);
+    const at = now();
     run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, analysis_ts, lighthouse_version, result_json, crux_json, created_by)
-         VALUES (?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)`, newId(), t.project_id, t.run_id, p.url, p.strategy, now(), result.analysisTimestamp, result.lighthouseVersion, JSON.stringify(result), crux ? JSON.stringify(crux) : null, t.created_by);
-    run("INSERT INTO app_settings (key, value) VALUES ('google.apiKeyLastCheck', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", `ok ${now()}`);
+         VALUES (?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)`, newId(), t.project_id, t.run_id, p.url, p.strategy, at, result.analysisTimestamp, result.lighthouseVersion, JSON.stringify(result), crux ? JSON.stringify(crux) : null, t.created_by);
+    run("INSERT INTO app_settings (key, value) VALUES ('google.apiKeyLastCheck', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", `ok ${at}`);
     if (t.run_id) importProviderFindings(t.run_id, psiFindings(result, p.url));
+    return { outcome: "fresh", sourceAt: at };
   } catch (e) {
+    const technical = (e as { technical?: string }).technical;
     run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, error, error_kind, error_detail, fetched_at, created_by) VALUES (?, ?, ?, ?, ?, 'error', ?, ?, ?, ?, ?)`,
-      newId(), t.project_id, t.run_id, p.url, p.strategy, (e as Error).message, errorKind(e), (e as { technical?: string }).technical ?? null, now(), t.created_by);
+      newId(), t.project_id, t.run_id, p.url, p.strategy, redactSecrets((e as Error).message), errorKind(e), technical ? redactSecrets(technical) : null, now(), t.created_by);
     throw e;
   }
 }
@@ -440,6 +451,8 @@ export function importProviderFindings(runId: string, findings: ProviderFinding[
 export interface PsiRow {
   id: string; url: string; strategy: Strategy; status: "ok" | "error"; error: string | null; error_kind: string | null; run_id: string | null;
   fetched_at: string; analysis_ts: string | null; lighthouse_version: string | null; result: PsiResult | null; crux: FieldData | null; reportUrl: string;
+  /** GQA-05: the newest failed attempt after this successful result, if any. */
+  newerFailure?: { at: string; kind: string | null; error: string | null } | null;
 }
 const toPsi = (r: Record<string, unknown>): PsiRow => ({
   ...(r as unknown as PsiRow),
@@ -466,7 +479,12 @@ export function latestPsiPerKey(user: User, projectId: string): PsiRow[] {
      WHERE p.project_id = ? AND p.rowid = (
        SELECT x.rowid FROM psi_results x WHERE x.project_id = p.project_id AND x.url = p.url AND x.strategy = p.strategy
        ORDER BY (x.status = 'ok') DESC, x.fetched_at DESC, x.rowid DESC LIMIT 1)
-     ORDER BY p.url, p.strategy`, projectId).map(toPsi);
+     ORDER BY p.url, p.strategy`, projectId).map(toPsi).map((r) => ({
+    ...r,
+    newerFailure: r.status === "ok" ? get<{ at: string; kind: string | null; error: string | null }>(
+      `SELECT fetched_at AS at, error_kind AS kind, error FROM psi_results WHERE project_id = ? AND url = ? AND strategy = ? AND status = 'error' AND fetched_at > ?
+       ORDER BY fetched_at DESC, rowid DESC LIMIT 1`, projectId, r.url, r.strategy, r.fetched_at) ?? null : null,
+  }));
 }
 
 export function psiResults(user: User, opts: { projectId?: string; runId?: string; url?: string; strategy?: Strategy; limit?: number }): (PsiRow & { project_name: string })[] {
@@ -515,11 +533,31 @@ export function structuredData(user: User, runId: string) {
   ).map((x) => ({ ...x, items: JSON.parse(x.items_json) as import("../../src/schema/types").SdItem[] }));
 }
 
+type TaskRow = { id: string; type: string; status: string; error: string | null; payload_json: string; created_at: string; started_at: string | null; finished_at: string | null;
+  project_id: string; project_name: string; run_id: string | null; outcome: string | null; source_fetched_at: string | null };
+
 export function googleTasks(user: User, projectId?: string, limit = 50) {
   const scope = projectScope(user, "t.project_id");
-  return all<{ id: string; type: string; status: string; error: string | null; payload_json: string; created_at: string; finished_at: string | null; project_name: string; run_id: string | null }>(
+  return all<TaskRow>(
     `SELECT t.*, p.name AS project_name FROM google_tasks t JOIN projects p ON p.id = t.project_id WHERE ${scope.sql} ${projectId ? "AND t.project_id = ?" : ""} ORDER BY t.created_at DESC LIMIT ?`,
-    ...scope.params, ...(projectId ? [projectId] : []), limit);
+    ...scope.params, ...(projectId ? [projectId] : []), limit).map((t) => ({ ...t, ...taskOutcome(t) }));
+}
+
+/**
+ * GQA-06: "fresh" (new Google measurement), "cached" (reused an earlier one) or "failed". Tasks finished before the
+ * outcome was stored are derived for display from the stored results (a reused result keeps Google's original
+ * time, earlier than the task); nothing is rewritten.
+ */
+function taskOutcome(t: TaskRow): { outcome?: "fresh" | "cached" | "failed"; sourceAt?: string } {
+  if (t.type !== "psi" || (t.status !== "completed" && t.status !== "failed")) return {};
+  if (t.outcome) return { outcome: t.outcome as "fresh" | "cached" | "failed", sourceAt: t.source_fetched_at ?? undefined };
+  if (t.status === "failed") return { outcome: "failed" };
+  const p = JSON.parse(t.payload_json) as { url?: string; strategy?: string };
+  const src = get<{ at: string }>(
+    "SELECT fetched_at AS at FROM psi_results WHERE project_id = ? AND url = ? AND strategy = ? AND status = 'ok' AND fetched_at <= ? ORDER BY fetched_at DESC LIMIT 1",
+    t.project_id, p.url, p.strategy, t.finished_at ?? t.created_at);
+  if (!src) return {};
+  return { outcome: src.at < (t.started_at ?? t.created_at) ? "cached" : "fresh", sourceAt: src.at };
 }
 
 /** Last N complete days of final Search Console data (Google usually lags 2–3 days). */
@@ -529,17 +567,67 @@ export function presetRange(days: number, today = new Date()): DateRange {
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
+/** GQA-03: at most one key test at a time, and none within this long after the last one. */
+export const PSI_TEST_COOLDOWN_MS = 60_000;
+const PSI_TEST_STALE_MS = 3 * 60_000; // a test "running" longer than this was interrupted
+
+export interface PsiTestResult { ok: boolean; kind?: string; message: string; at: string; reused?: boolean }
+interface PsiTestRecord { running: boolean; startedAt?: string; last?: PsiTestResult }
+
+const readTest = (): PsiTestRecord => {
+  try { return JSON.parse(getSetting("google.psiTest") ?? "{}") as PsiTestRecord; } catch { return { running: false }; }
+};
+const testRunning = (r: PsiTestRecord) => r.running && !!r.startedAt && Date.now() - Date.parse(r.startedAt) < PSI_TEST_STALE_MS;
+let inflight: Promise<PsiTestResult> | null = null;
+
+/** Last test result, whether one is running, and when the next one is allowed (no Google call). */
+export function pageSpeedTestState(): { running: boolean; last?: PsiTestResult; nextAllowedAt?: string } {
+  const r = readTest();
+  return { running: testRunning(r), last: r.last, nextAllowedAt: r.last ? new Date(Date.parse(r.last.at) + PSI_TEST_COOLDOWN_MS).toISOString() : undefined };
+}
+
 /**
  * NEW-01: "Test PageSpeed key". One live request for the website's start page, made only by an admin who ticked the
  * confirmation. The result is stored like any PageSpeed result, so the shared health status reflects it.
+ * GQA-03: the lock is taken synchronously in the database, so rapid or concurrent submissions share one request;
+ * within the cooldown the previous result is returned instead of calling Google again.
  */
-export async function testPageSpeedKey(user: User, projectId: string, confirmed: boolean): Promise<{ ok: true } | { ok: false; kind: string; message: string }> {
+export async function testPageSpeedKey(user: User, projectId: string, confirmed: boolean): Promise<PsiTestResult> {
   assertCan(user, "settings:manage");
   if (!confirmed) throw new Error("Tick the confirmation first: this test sends one request to Google.");
   const project = getProject(user, projectId);
-  const id = queue(user, "psi", projectId, undefined, { url: project.base_url, strategy: "mobile", force: true });
-  const status = await processGoogleTask(id, { retries: 0 });
-  if (status === "completed") return { ok: true };
-  const row = get<{ error: string; error_kind: string }>("SELECT error, error_kind FROM psi_results WHERE project_id = ? AND url = ? ORDER BY rowid DESC LIMIT 1", projectId, project.base_url);
-  return { ok: false, kind: row?.error_kind ?? "transient", message: row?.error ?? "The test request failed." };
+  const apiKey = googleConfig().apiKey;
+  if (!isGoogleApiKey(apiKey)) return { ok: false, kind: "invalid-format", message: invalidKeyError(apiKey).message, at: now() };
+
+  const decision = tx(() => {
+    const r = readTest();
+    if (testRunning(r)) return "busy" as const;
+    if (r.last && Date.now() - Date.parse(r.last.at) < PSI_TEST_COOLDOWN_MS) return "cooldown" as const;
+    setSetting("google.psiTest", JSON.stringify({ ...r, running: true, startedAt: now() }));
+    return "run" as const;
+  });
+  if (decision === "busy") {
+    if (inflight) return { ...(await inflight), reused: true };
+    return { ok: false, kind: "busy", message: "A PageSpeed key test is already running. Its result will appear here when it finishes.", at: now(), reused: true };
+  }
+  if (decision === "cooldown") return { ...readTest().last!, reused: true };
+
+  inflight = (async (): Promise<PsiTestResult> => {
+    let result: PsiTestResult;
+    try {
+      const id = queue(user, "psi", projectId, undefined, { url: project.base_url, strategy: "mobile", force: true });
+      const status = await processGoogleTask(id, { retries: 0 });
+      if (status === "completed") result = { ok: true, message: "PageSpeed key works: Google answered the test request.", at: now() };
+      else {
+        const row = get<{ error: string; error_kind: string }>("SELECT error, error_kind FROM psi_results WHERE project_id = ? AND url = ? ORDER BY rowid DESC LIMIT 1", projectId, project.base_url);
+        result = { ok: false, kind: row?.error_kind ?? "transient", message: row?.error ?? "The test request failed.", at: now() };
+      }
+    } catch (e) {
+      result = { ok: false, kind: "transient", message: redactSecrets((e as Error).message), at: now() };
+    }
+    setSetting("google.psiTest", JSON.stringify({ running: false, last: result }));
+    return result;
+  })();
+  const mine = inflight;
+  try { return await mine; } finally { if (inflight === mine) inflight = null; }
 }

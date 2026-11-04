@@ -19,9 +19,20 @@ export interface GscStatus {
   errorKind?: string;
   property?: string;
   checkedAt?: string | null;
+  /** GQA-04: last successful / failed check (older checks: failure falls back to the check time; success unknown). */
+  lastSuccessAt?: string | null;
+  lastFailureAt?: string | null;
+  /** True when the last check is older than GSC_STALE_MS: the status may no longer be true. */
+  stale?: boolean;
+  /** "Last checked …" plus the stale hint, for every screen that shows this status. */
+  freshness?: string | null;
   /** Google's raw error text: admins only. */
   technical?: string;
 }
+
+/** After this long a stored Search Console result may be out of date (nothing is re-checked automatically). */
+export const GSC_STALE_MS = 30 * 60_000;
+const when = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
 const ERROR_LABEL: Record<string, string> = {
   "api-disabled": "Search Console API not enabled in Google Cloud",
@@ -33,7 +44,8 @@ const ERROR_LABEL: Record<string, string> = {
   other: "Search Console check failed",
 };
 
-type Conn = { id: string; last_error: string | null; last_error_kind: string | null; last_error_detail: string | null; last_check_at: string | null };
+type Conn = { id: string; last_error: string | null; last_error_kind: string | null; last_error_detail: string | null; last_check_at: string | null;
+  last_success_at: string | null; last_failure_at: string | null };
 
 export function searchConsoleStatus(user: User, projectId?: string): GscStatus {
   const connections = `/google/connections${projectId ? `?project=${projectId}` : ""}`;
@@ -45,7 +57,7 @@ export function searchConsoleStatus(user: User, projectId?: string): GscStatus {
     };
   }
   const pg = projectId ? projectGoogle(user, projectId) : null;
-  const cols = "id, last_error, last_error_kind, last_error_detail, last_check_at";
+  const cols = "id, last_error, last_error_kind, last_error_detail, last_check_at, last_success_at, last_failure_at";
   // The project's bound connection wins; otherwise the viewer's own connection.
   const conn = (pg?.connection_id && get<Conn>(`SELECT ${cols} FROM google_connections WHERE id = ? AND revoked_at IS NULL`, pg.connection_id))
     || get<Conn>(`SELECT ${cols} FROM google_connections WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`, user.id);
@@ -57,6 +69,18 @@ export function searchConsoleStatus(user: User, projectId?: string): GscStatus {
     };
   }
   const admin = can(user, "settings:manage");
+  const status = describe(user, conn, pg, projectId, connections, admin);
+  if (!conn.last_check_at) return status;
+  const stale = Date.now() - Date.parse(conn.last_check_at) > GSC_STALE_MS;
+  return {
+    ...status, stale,
+    lastSuccessAt: conn.last_success_at ?? null,
+    lastFailureAt: conn.last_failure_at ?? (conn.last_error_kind ? conn.last_check_at : null),
+    freshness: `Last checked ${when(conn.last_check_at)}.${stale ? " This status may be out of date. Retry to check again." : ""}`,
+  };
+}
+
+function describe(user: User, conn: Conn, pg: ReturnType<typeof projectGoogle> | null, projectId: string | undefined, connections: string, admin: boolean): GscStatus {
   if (conn.last_error_kind) {
     return {
       state: "api-error", label: ERROR_LABEL[conn.last_error_kind] ?? ERROR_LABEL.other,
