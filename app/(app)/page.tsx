@@ -12,6 +12,7 @@ import { btn, Card, cx, Empty, fmtDate, Notice, PageHeader, StatusPill } from "@
 import { Icon, type IconName } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Overview" };
 
 function Attention({ icon, label, value, help, href, tone }: { icon: IconName; label: string; value: number; help: string; href: string; tone?: "high" }) {
   return (

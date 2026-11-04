@@ -79,6 +79,7 @@ export function getProject(user: User, id: string): Project {
 export interface ProjectSummary extends Project {
   runs: number;
   last_run_at: string | null;
+  last_finished_at?: string | null;
   last_status: string | null;
   open_findings: number;
 }
@@ -89,6 +90,7 @@ export function listProjects(user: User): ProjectSummary[] {
     `SELECT p.*,
        (SELECT COUNT(*) FROM audit_runs r WHERE r.project_id = p.id) AS runs,
        (SELECT MAX(created_at) FROM audit_runs r WHERE r.project_id = p.id) AS last_run_at,
+       (SELECT MAX(finished_at) FROM audit_runs r WHERE r.project_id = p.id AND r.status = 'completed') AS last_finished_at,
        (SELECT status FROM audit_runs r WHERE r.project_id = p.id ORDER BY created_at DESC LIMIT 1) AS last_status,
        (SELECT COUNT(*) FROM issues i WHERE i.run_id = (SELECT id FROM audit_runs r WHERE r.project_id = p.id AND r.status = 'completed' ORDER BY created_at DESC LIMIT 1)
           AND i.verification_status != 'false_positive') AS open_findings

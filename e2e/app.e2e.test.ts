@@ -697,6 +697,57 @@ describe("WebAudit Pro end to end", () => {
       expect(unreviewed()).toBe(start - target + 1);
     });
 
+    it("UX-19: an admin changes a role, disables/re-enables and resets a password; the user is signed out each time", async () => {
+      const ctx = await browser.newContext();
+      const other = await ctx.newPage();
+      const signIn = async (password: string) => {
+        await other.goto(`${APP}/login`);
+        await other.getByLabel("Email").fill(QA.email);
+        await other.getByLabel("Password").fill(password);
+        await other.getByRole("button", { name: "Sign in" }).click();
+      };
+      await signIn(QA.password);
+      await other.waitForURL(`${APP}/`);
+      const row = () => page.locator("li", { hasText: QA.email });
+
+      await page.goto(`${APP}/settings`);
+      await row().getByText("Change role").click();
+      await row().getByLabel(`Role for ${QA.name}`).selectOption("developer");
+      await row().getByRole("button", { name: "Save role" }).click();
+      await page.getByText("Role changed.").waitFor();
+      expect(q<{ role: string }>("SELECT role FROM users WHERE email = ?", QA.email)[0].role).toBe("developer");
+      await other.goto(`${APP}/`);
+      await other.waitForURL(/\/login/); // signed out by the role change
+
+      await page.reload();
+      await row().getByRole("button", { name: "Disable" }).click();
+      await row().getByRole("button", { name: "Enable" }).waitFor();
+      await signIn(QA.password);
+      expect(other.url()).toContain("/login"); // disabled accounts can't sign in
+      await row().getByRole("button", { name: "Enable" }).click();
+      await row().getByRole("button", { name: "Disable" }).waitFor();
+
+      await row().getByText("Reset password").click();
+      await row().getByLabel(`New password for ${QA.name}`).fill("a brand new password 123");
+      await row().getByRole("button", { name: "Reset" }).click();
+      await page.getByText(/password/i).first().waitFor();
+      await signIn("a brand new password 123");
+      await other.waitForURL(`${APP}/`);
+      // The admin's own row has no role/disable controls (the last admin can't lock themselves out).
+      expect(await page.locator("li", { hasText: ADMIN.email }).getByText("Change role").count()).toBe(0);
+      // Restore the original password and role for later tests.
+      await page.reload();
+      await row().getByText("Reset password").click();
+      await row().getByLabel(`New password for ${QA.name}`).fill(QA.password);
+      await row().getByRole("button", { name: "Reset" }).click();
+      await page.waitForTimeout(500);
+      await row().getByText("Change role").click();
+      await row().getByLabel(`Role for ${QA.name}`).selectOption("qa");
+      await row().getByRole("button", { name: "Save role" }).click();
+      await page.getByText("Role changed.").waitFor();
+      await ctx.close();
+    });
+
     it("UX 4: Help explains the workflow and terms; New Audit keeps advanced settings out of the way", async () => {
       await page.goto(`${APP}/help`);
       expect(await page.getByRole("heading", { name: "Help & getting started" }).count()).toBe(1);

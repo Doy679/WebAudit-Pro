@@ -42,6 +42,21 @@ export function Source({ kind, when }: { kind: keyof typeof SOURCE; when?: strin
 }
 
 export function ProjectPicker({ projects, selected, extra }: { projects: { id: string; name: string }[]; selected?: string; extra?: ReactNode }) {
+  // UX-10: with a few websites, one click switches (links clearly navigate, so this stays WCAG 3.2.2-safe);
+  // a dropdown that navigated on change would move keyboard users while they browse the options.
+  if (!extra && projects.length > 1 && projects.length <= 6) {
+    return (
+      <nav aria-label="Website" className="mb-5 flex flex-wrap items-center gap-2" data-testid="website-switcher">
+        <span className="text-sm font-medium text-slate-700">Website:</span>
+        {projects.map((p) => (
+          <Link key={p.id} href={`?project=${p.id}`} aria-current={p.id === selected ? "page" : undefined}
+            className={cx("rounded-full border px-3 py-1.5 text-sm", p.id === selected ? "border-navy-900 bg-navy-900 font-medium text-white" : "border-slate-300 bg-white text-slate-700 hover:border-accent-500")}>
+            {p.name}
+          </Link>
+        ))}
+      </nav>
+    );
+  }
   return (
     <form method="get" className="mb-5 flex flex-wrap items-end gap-2">
       <div className="min-w-0 flex-1 sm:max-w-sm">
