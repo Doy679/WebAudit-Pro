@@ -14,7 +14,10 @@ export function WebsiteHealth({ sections, coverage, total }: { sections: HealthS
           <div key={s.key} className="bg-white p-4" data-section={s.key} data-state={s.state}>
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-sm font-semibold text-navy-900">{s.title}</h3>
-              {s.href && <Link href={s.href} className="text-xs text-accent-600 hover:underline">Open</Link>}
+              {s.href && (
+                <Link href={s.href} className="text-xs text-accent-600 hover:underline"
+                  aria-label={`Open ${s.title}${s.findings ? ` findings (${s.findings.confirmed + s.findings.recommendation + s.findings.needsReview})` : ""}`}>Open</Link>
+              )}
             </div>
             <div className="text-[11px] text-slate-500">{s.source}</div>
             {s.state !== "ok" ? (

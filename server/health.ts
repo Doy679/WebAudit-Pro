@@ -47,7 +47,7 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
 
   const engine = (key: "design" | "a11y" | "seo", title: string, cats: string[], extra: HealthSection["metrics"] = []): HealthSection =>
     run && cats.some(ran)
-      ? { key, title, state: "ok", findings: counts(run.id, TYPES[key]), metrics: extra, source: "WebAudit Pro live crawl", href: `/issues?run=${run.id}` }
+      ? { key, title, state: "ok", findings: counts(run.id, TYPES[key]), metrics: extra, source: "WebAudit Pro live crawl", href: `/issues?run=${run.id}&types=${TYPES[key].join(",")}` }
       : { key, title, state: "not-run", why: run ? "Category not included in the audit" : "No completed audit", metrics: [], source: "WebAudit Pro live crawl" };
 
   // Lighthouse results for the audit's start page (linked to the run when available, else the project's latest).

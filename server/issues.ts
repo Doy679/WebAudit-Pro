@@ -7,6 +7,8 @@ export interface IssueFilters {
   projectId?: string;
   url?: string;
   type?: string;
+  /** Several categories at once (health cards). */
+  types?: string[];
   severity?: string;
   viewport?: number;
   kind?: string;
@@ -132,6 +134,7 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
   else where.push(`i.run_id IN (${LATEST_RUNS})`);
   eq("i.project_id", f.projectId);
   eq("i.type", f.type);
+  if (f.types?.length) { where.push(`i.type IN (${f.types.map(() => "?").join(",")})`); params.push(...f.types); }
   eq("i.severity", f.severity);
   eq("i.kind", f.kind);
   eq("i.verification_status", f.verification);

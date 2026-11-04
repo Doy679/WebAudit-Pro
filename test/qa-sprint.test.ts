@@ -232,3 +232,14 @@ describe("BUG-17 / BUG-18: safe review controls", async () => {
     expect(keys("recommendation")).toEqual(["approve", "request_revision", "reject", "note"]);
   });
 });
+
+describe("BUG-16: health cards open their own filtered list", async () => {
+  const { parseIssueSearchParams } = await import("../server/issue-filters");
+  const issuesMod = await import("../server/issues");
+  it("parses a validated multi-category filter and applies it", () => {
+    expect(parseIssueSearchParams({ types: "layout,spacing,BAD!,layout" }).types).toEqual(["layout", "spacing"]);
+    const run = get<{ id: string }>("SELECT run_id AS id FROM issues WHERE type = 'performance' LIMIT 1")!.id;
+    const rows = issuesMod.listIssues(admin, { runId: run, types: ["performance", "cwv"] }).rows;
+    expect(rows.map((r) => r.type).sort()).toEqual(["cwv", "performance", "performance"]);
+  });
+});

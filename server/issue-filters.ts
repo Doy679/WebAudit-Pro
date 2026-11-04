@@ -28,7 +28,7 @@ export const QUICK_FILTERS = [
 const QUICK = QUICK_FILTERS.map((q) => q.key).filter((k) => k !== "all");
 
 /** URL parameters that make up a filter (what a saved view may store). */
-export const FILTER_PARAMS = ["q", "project", "run", "url", "type", "severity", "viewport", "kind", "verification", "review", "implementation", "assignee", "provider", "quick", "conf", "sort", "size"];
+export const FILTER_PARAMS = ["q", "project", "run", "url", "type", "types", "severity", "viewport", "kind", "verification", "review", "implementation", "assignee", "provider", "quick", "conf", "sort", "size"];
 
 type Params = Record<string, string | string[] | undefined>;
 
@@ -48,6 +48,7 @@ export function parseIssueSearchParams(sp: Params): IssueFilters {
     runId: g("run") && /^[\w-]{1,64}$/.test(g("run")!) ? g("run") : undefined,
     url: g("url") && /^https?:\/\//.test(g("url")!) ? g("url") : undefined,
     type: g("type") && TYPE.test(g("type")!) ? g("type") : undefined,
+    types: g("types") ? [...new Set(g("types")!.split(",").map((t) => t.trim()).filter((t) => TYPE.test(t)))].slice(0, 12) : undefined,
     severity: pick(g("severity"), SEVERITY),
     viewport: int(g("viewport"), 1, 10_000),
     kind: pick(g("kind"), KIND),

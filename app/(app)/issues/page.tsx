@@ -99,6 +99,13 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
 
       <form method="get" className="mb-4 rounded-lg border border-slate-200 bg-white p-3" aria-label="Filter findings">
         {filters.quick && <input type="hidden" name="quick" value={filters.quick} />}
+        {filters.types && <input type="hidden" name="types" value={filters.types.join(",")} />}
+        {filters.types && (
+          <p className="mb-2 text-sm text-slate-700" data-testid="types-filter">
+            Showing categories: <strong>{filters.types.map((t) => TYPE_LABEL[t] ?? t).join(", ")}</strong>{" "}
+            <Link href={qs({ types: undefined, page: undefined })} className="text-accent-600 underline">Show all categories</Link>
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <label className="col-span-2 block text-xs font-medium text-slate-600">
             Search
