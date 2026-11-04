@@ -108,3 +108,13 @@ export function setUserDisabled(userId: string, disabled: boolean) {
   run("UPDATE users SET disabled = ? WHERE id = ?", disabled ? 1 : 0, userId);
   if (disabled) run("DELETE FROM sessions WHERE user_id = ?", userId);
 }
+
+/** UX-19: an admin changes another account's role. The user is signed out so new permissions apply at once. */
+export function setUserRole(admin: User, userId: string, role: Role) {
+  if (admin.role !== "admin") throw new ForbiddenError("Only admins can change roles.");
+  if (userId === admin.id) throw new Error("You can't change your own role. Ask another admin.");
+  if (!ROLES.includes(role)) throw new Error("Choose a valid role.");
+  if (!get("SELECT 1 FROM users WHERE id = ?", userId)) throw new Error("User not found.");
+  run("UPDATE users SET role = ? WHERE id = ?", role, userId);
+  run("DELETE FROM sessions WHERE user_id = ?", userId);
+}

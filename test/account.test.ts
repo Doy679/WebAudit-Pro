@@ -57,3 +57,19 @@ describe("database backup", () => {
     copy.close();
   });
 });
+
+describe("UX-19: admins change roles safely", () => {
+  it("changes another user's role and signs them out; refuses self-demotion and non-admins", async () => {
+    const { createUser, createSession, sessionUser, setUserRole } = await import("../server/auth");
+    const { get } = await import("../server/db");
+    const boss = get<any>("SELECT id, email, name, role FROM users WHERE role = 'admin' LIMIT 1");
+    const dev = createUser({ email: `dev${Date.now()}@example.com`, name: "Dev", password: "correct horse battery", role: "developer" });
+    const token = createSession(dev.id);
+    setUserRole(boss, dev.id, "qa");
+    expect(get<{ role: string }>("SELECT role FROM users WHERE id = ?", dev.id)!.role).toBe("qa");
+    expect(sessionUser(token)).toBeNull(); // new permissions apply at next sign-in
+    expect(() => setUserRole(boss, boss.id, "qa")).toThrow(/your own role/i);
+    expect(() => setUserRole({ ...dev, role: "qa" }, boss.id, "client")).toThrow(/only admins/i);
+    expect(() => setUserRole(boss, dev.id, "superuser" as never)).toThrow(/role/i);
+  });
+});

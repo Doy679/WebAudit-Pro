@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { authenticate, changePassword, createSession, createUser, destroySession, resetPassword, setUserDisabled, userCount, ROLES, type Role } from "@/server/auth";
+import { authenticate, changePassword, createSession, createUser, destroySession, resetPassword, setUserDisabled, setUserRole, userCount, ROLES, type Role } from "@/server/auth";
 import { backupDatabase } from "@/server/backup";
 import { deleteView, saveView } from "@/server/saved-views";
 import { dismissOnboarding } from "@/server/onboarding";
@@ -397,4 +397,14 @@ export async function setOnboardingAction(fd: FormData) {
   dismissOnboarding(user, str(fd, "show") !== "1");
   revalidatePath("/");
   if (str(fd, "show") === "1") redirect("/");
+}
+
+export async function setUserRoleAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const admin = await requireUser("users:manage");
+    const role = str(fd, "role") as Role;
+    setUserRole(admin, str(fd, "userId"), role);
+    revalidatePath("/settings");
+    return { ok: "Role changed. The user was signed out so the new permissions apply at their next sign-in." };
+  });
 }

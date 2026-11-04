@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
 import { listRuns } from "@/server/runs";
-import { releasableIssues } from "@/server/issues";
+import { listIssues, quickFilterCounts, releasableIssues } from "@/server/issues";
 import { listPackages } from "@/server/approvals";
 import { can } from "@/server/permissions";
 import { createApprovalAction } from "@/app/actions";
@@ -24,6 +24,9 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
   const eligible = selected
     ? releasableIssues(user, selected.id)
     : [];
+  // UX-07: say how far review has got and where the next findings to review are.
+  const review = selected ? quickFilterCounts(user, { runId: selected.id }) : null;
+  const unreviewedHigh = selected ? listIssues(user, { runId: selected.id, severity: "high", verification: "unverified", pageSize: 1 }).total : 0;
 
   return (
     <>
@@ -44,10 +47,13 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
             <button className={btn.secondary}>Select</button>
           </form>
           {eligible.length === 0 ? (
-            <p className="text-sm text-slate-600">
-              No findings in this audit are ready to release. Confirm findings or approve recommendations in{" "}
-              <Link href={`/issues?run=${selected.id}`} className="text-accent-600 underline">Issues</Link> first.
-            </p>
+            <div className="space-y-2 text-sm text-slate-700" data-testid="approval-blocked">
+              <p><strong>0 of {review?.all ?? 0}</strong> findings in this audit are ready to send. Only findings your team has reviewed can go to a client: confirm real problems, or approve recommendations.</p>
+              {unreviewedHigh > 0 && (
+                <p><Link href={`/issues?run=${selected.id}&severity=high&verification=unverified`} className="font-medium text-accent-600 underline">Review the {unreviewedHigh} high-priority findings first →</Link></p>
+              )}
+              <p><Link href={`/issues?run=${selected.id}&verification=unverified`} className="text-accent-600 underline">See all findings not reviewed yet</Link></p>
+            </div>
           ) : (
             <ActionForm action={createApprovalAction} className="space-y-4" resetKey={selected.id}>
               <input type="hidden" name="projectId" value={selected.project_id} />

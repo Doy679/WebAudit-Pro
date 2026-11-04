@@ -3,7 +3,7 @@ import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { listUsers, ROLE_LABELS, ROLES } from "@/server/auth";
 import { can } from "@/server/permissions";
 import { aiSettings, getSetting } from "@/server/settings";
-import { backupAction, changePasswordAction, createUserAction, resetPasswordAction, saveAiSettingsAction, saveBrandAction, toggleUserAction } from "@/app/actions";
+import { backupAction, changePasswordAction, createUserAction, resetPasswordAction, saveAiSettingsAction, saveBrandAction, setUserRoleAction, toggleUserAction } from "@/app/actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { btn, Card, fmtDate, hint, input, label, PageHeader } from "@/components/ui";
 
@@ -56,6 +56,17 @@ export default async function SettingsPage() {
                         <input type="hidden" name="userId" value={u.id} /><input type="hidden" name="disable" value={u.disabled ? "0" : "1"} />
                         <button className={btn.ghost}>{u.disabled ? "Enable" : "Disable"}</button>
                       </form>
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-accent-600">Change role</summary>
+                        <ActionForm action={setUserRoleAction} className="mt-1 flex flex-wrap gap-1">
+                          <input type="hidden" name="userId" value={u.id} />
+                          <label htmlFor={`role-${u.id}`} className="sr-only">Role for {u.name}</label>
+                          <select id={`role-${u.id}`} name="role" defaultValue={u.role} className={`${input} w-auto py-1`}>
+                            {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                          </select>
+                          <Submit variant="secondary">Save role</Submit>
+                        </ActionForm>
+                      </details>
                       <details className="text-xs">
                         <summary className="cursor-pointer text-accent-600">Reset password</summary>
                         <ActionForm action={resetPasswordAction} className="mt-1 flex flex-wrap gap-1">
