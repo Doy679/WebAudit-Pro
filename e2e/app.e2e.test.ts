@@ -2,7 +2,7 @@
 // against a local fixture website. Requires `npm run build` first (npm run test:e2e does this).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import ExcelJS from "exceljs";
@@ -533,6 +533,9 @@ describe("WebAudit Pro end to end", () => {
   it("BUG-10: navigating every sidebar link and Google tab uses client navigation with no 5xx responses", async () => {
     const bad: string[] = [];
     const docs: string[] = [];
+    const csp: string[] = [];
+    const onConsole = (m: import("playwright").ConsoleMessage) => { if (/Content Security Policy/i.test(m.text())) csp.push(m.text().slice(0, 160)); };
+    page.on("console", onConsole);
     const onResponse = (r: import("playwright").Response) => {
       if (r.status() >= 500) bad.push(`${r.status()} ${new URL(r.url()).pathname}${new URL(r.url()).search.slice(0, 10)}`);
       if (r.request().resourceType() === "document") docs.push(new URL(r.url()).pathname);
@@ -555,8 +558,12 @@ describe("WebAudit Pro end to end", () => {
     } finally {
       page.off("response", onResponse);
     }
+    page.off("console", onConsole);
     expect(bad).toEqual([]);
     expect(docs).toEqual([]); // every click was a client-side navigation, never a full page reload
+    // CSP is report-only: record what an enforced policy would block (evidence for the approval decision).
+    mkdirSync(resolve("test-results"), { recursive: true });
+    writeFileSync(resolve("test-results", "csp-report-only.json"), JSON.stringify({ violations: csp.length, samples: [...new Set(csp)].slice(0, 20) }, null, 2));
   });
 
   it("BUG-22/23: detail pages have descriptive titles; unknown addresses get a branded 404 with ways back", async () => {
