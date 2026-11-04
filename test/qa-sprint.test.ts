@@ -243,3 +243,15 @@ describe("BUG-16: health cards open their own filtered list", async () => {
     expect(rows.map((r) => r.type).sort()).toEqual(["cwv", "performance", "performance"]);
   });
 });
+
+describe("BUG-11 / UX-04: mixed-website lists and quick-filter counts", async () => {
+  const { QUICK_FILTERS, parseIssueSearchParams } = await import("../server/issue-filters");
+  const issuesMod = await import("../server/issues");
+  it("has a Recommendations quick filter and counts every chip with the same query as the list", () => {
+    expect(QUICK_FILTERS.map((q) => q.key)).toContain("recommendations");
+    const run = get<{ id: string }>("SELECT run_id AS id FROM issues WHERE type = 'performance' LIMIT 1")!.id;
+    const counts = issuesMod.quickFilterCounts(admin, { runId: run });
+    expect(counts.all).toBe(4);
+    expect(counts.high).toBe(issuesMod.listIssues(admin, { ...parseIssueSearchParams({ quick: "high" }), runId: run }).total);
+  });
+});

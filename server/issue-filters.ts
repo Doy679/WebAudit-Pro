@@ -22,6 +22,7 @@ export const QUICK_FILTERS = [
   { key: "seo", label: "SEO" },
   { key: "layout", label: "Layout & spacing" },
   { key: "confirmed", label: "Confirmed" },
+  { key: "recommendations", label: "Recommendations" },
   { key: "review", label: "Needs review" },
   { key: "client", label: "Awaiting client" },
 ] as const;

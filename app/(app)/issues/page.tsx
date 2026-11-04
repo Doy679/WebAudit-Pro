@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
-import { filterOptions, listIssues } from "@/server/issues";
+import { filterOptions, listIssues, quickFilterCounts } from "@/server/issues";
 import { parseIssueSearchParams, QUICK_FILTERS } from "@/server/issue-filters";
 import { listViews } from "@/server/saved-views";
 import { explainIssue } from "@/server/explain";
@@ -41,6 +41,9 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   const current = new URLSearchParams(Object.entries(sp).filter(([k, v]) => v && k !== "page") as [string, string][]).toString();
   const detail = (id: string) => `/issues/${id}${current ? `?from=${encodeURIComponent(current)}` : ""}`;
   const quick = filters.quick ?? "all";
+  const chipCounts = quickFilterCounts(user, filters);
+  // BUG-11: display IDs restart per website, so name the website whenever the list mixes websites.
+  const mixed = new Set(rows.map((r) => r.project_id)).size > 1 || (!filters.projectId && !filters.runId && projects.length > 1);
   const ADVANCED = ["url", "type", "viewport", "kind", "verification", "review", "assignee", "provider", "conf"];
   const advancedOpen = ADVANCED.some((k) => sp[k]);
   const first = total ? (page - 1) * pageSize + 1 : 0;
@@ -68,7 +71,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
         {QUICK_FILTERS.map((q) => (
           <Link key={q.key} href={qs({ quick: q.key === "all" ? undefined : q.key, page: undefined })} aria-current={quick === q.key ? "page" : undefined}
             className={cx("rounded-full border px-3 py-1.5 text-sm", quick === q.key ? "border-navy-900 bg-navy-900 font-medium text-white" : "border-slate-300 bg-white text-slate-700 hover:border-accent-500")}>
-            {q.label}
+            {q.label} <span className="tabular opacity-80">({chipCounts[q.key] ?? 0})</span>
           </Link>
         ))}
       </nav>
@@ -187,7 +190,8 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                 {rows.map((i) => (
                   <tr key={i.id} className={cx("hover:bg-slate-50", i.verification_status === "false_positive" && "opacity-60")}>
                     {reviewer && <td className="px-3 py-2"><input type="checkbox" name="ids" value={i.id} aria-label={`Select ${i.code}`} /></td>}
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs"><Link href={detail(i.id)} className="text-accent-600 hover:underline">{i.code}</Link></td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs"><Link href={detail(i.id)} className="text-accent-600 hover:underline" aria-label={mixed ? `${i.code} (${i.project_name})` : undefined}>{i.code}</Link>
+                      {mixed && <div className="max-w-[9rem] truncate font-sans text-[11px] text-slate-600" data-testid="row-website">{i.project_name}</div>}</td>
                     <td className="max-w-xs px-3 py-2">
                       <Link href={detail(i.id)} className="font-medium text-navy-900 hover:underline">{i.title}</Link>
                       {(() => {

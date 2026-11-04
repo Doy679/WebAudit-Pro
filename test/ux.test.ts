@@ -52,7 +52,7 @@ const codes = (f: ReturnType<typeof parseIssueSearchParams>) => issues.listIssue
 
 describe("quick filters", () => {
   it("each quick filter maps to real filters", () => {
-    expect(QUICK_FILTERS.map((q) => q.key)).toEqual(["all", "high", "mobile", "desktop", "a11y", "seo", "layout", "confirmed", "review", "client"]);
+    expect(QUICK_FILTERS.map((q) => q.key)).toEqual(["all", "high", "mobile", "desktop", "a11y", "seo", "layout", "confirmed", "recommendations", "review", "client"]);
     expect(codes(parseIssueSearchParams({ quick: "high" }))).toEqual(["M1"]);
     expect(codes(parseIssueSearchParams({ quick: "mobile" }))).toEqual(["A1", "M1"]);
     expect(codes(parseIssueSearchParams({ quick: "desktop" }))).toEqual(["A1", "D1", "P1", "S1"]);

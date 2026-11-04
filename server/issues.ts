@@ -119,13 +119,15 @@ const QUICK_SQL = {
   seo: "i.type IN ('seo', 'structured-data', 'indexing', 'search-console')",
   layout: "i.type IN ('layout', 'spacing')",
   confirmed: "i.kind = 'confirmed'",
+  recommendations: "i.kind = 'recommendation'",
   review: "i.kind = 'needs-review'",
   // Released to a client in a package that wasn't revoked, and no client decision yet.
   client: `EXISTS (SELECT 1 FROM approval_items ai JOIN approval_packages ap ON ap.id = ai.package_id WHERE ai.issue_id = i.id AND ap.revoked_at IS NULL)
     AND NOT EXISTS (SELECT 1 FROM client_decisions d WHERE d.issue_id = i.id)`,
 };
 
-export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; total: number; page: number; pageSize: number } {
+/** WHERE clause shared by the list, its total and the quick-filter counts. */
+function issueWhere(user: User, f: IssueFilters): { whereSql: string; params: unknown[] } {
   const scope = projectScope(user, "i.project_id");
   const where = [scope.sql];
   const params: unknown[] = [...scope.params];
@@ -154,7 +156,11 @@ export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; tot
     const like = `%${f.q.trim()}%`;
     params.push(like, like, like, like, like, like, like, like);
   }
-  const whereSql = where.join(" AND ");
+  return { whereSql: where.join(" AND "), params };
+}
+
+export function listIssues(user: User, f: IssueFilters): { rows: IssueRow[]; total: number; page: number; pageSize: number } {
+  const { whereSql, params } = issueWhere(user, f);
   const total = get<{ n: number }>(`SELECT COUNT(*) AS n FROM issues i WHERE ${whereSql}`, ...params)!.n;
   const pageSize = Math.min(Math.max(f.pageSize ?? 50, 1), 1000);
   const page = Math.max(f.page ?? 1, 1);
@@ -331,4 +337,13 @@ export function reviewActionsFor(kind: string): { action: "confirm" | "false_pos
         { action: "false_positive", label: "Mark false positive", variant: "secondary" },
         note,
       ];
+}
+
+/** UX-04: the number of findings each quick filter would show, using exactly the list's own query. */
+export function quickFilterCounts(user: User, f: IssueFilters): Record<string, number> {
+  const { whereSql, params } = issueWhere(user, { ...f, quick: undefined });
+  const keys = Object.keys(QUICK_SQL) as (keyof typeof QUICK_SQL)[];
+  const row = get<Record<string, number>>(
+    `SELECT COUNT(*) AS "all", ${keys.map((k) => `COALESCE(SUM(CASE WHEN ${QUICK_SQL[k]} THEN 1 ELSE 0 END), 0) AS "${k}"`).join(", ")} FROM issues i WHERE ${whereSql}`, ...params)!;
+  return { ...row };
 }
