@@ -354,28 +354,26 @@ describe("BUG-13: structured-data page counts", async () => {
 });
 const run_ = run;
 
-describe("BUG-25: implausible line-height measurements", async () => {
+describe("BUG-25: very small line-heights are real findings (corrected in Sprint 6)", async () => {
   const { typographyChecks } = await import("../src/checks/typography");
   const { el, page, tokens } = await import("./helpers");
-  const lineIssues = (lineHeight: number, h: number) =>
-    typographyChecks(page({ elements: [el({ selector: "p.x", role: "text", tag: "p", text: "Janice Stowers Mortgage Team", css: { fontSize: 14, lineHeight }, box: { x: 0, y: 0, w: 600, h } })] }), tokens)
+  const lineIssues = (lineHeight: number, h: number, text = "Capital Home Mortgage is dedicated to offering Great Mortgage Rates.") =>
+    typographyChecks(page({ elements: [el({ selector: "p.x", role: "text", tag: "p", text, css: { fontSize: 14, lineHeight }, box: { x: 0, y: 0, w: 668, h } })] }), tokens)
       .filter((i) => i.rule === "line-height-tight");
 
-  it("ignores spacer elements too short to show a line of text (the reported 668×1 px paragraph)", () => {
-    expect(lineIssues(1.4, 1)).toHaveLength(0);
+  it("keeps the 668×1 px paragraph with visible text (line-height 0.10) and explains the overlap", () => {
+    const [i] = lineIssues(1.4, 1);
+    expect(i).toMatchObject({ kind: "recommendation", severity: "medium" });
+    expect(i.recommendation).toMatch(/lines overlap/);
   });
 
-  it("sends physically implausible ratios to review instead of a confident recommendation", () => {
-    const [i] = lineIssues(1.4, 40);
-    expect(i).toMatchObject({ kind: "needs-review" });
-    expect(i.recommendation).toMatch(/check visually/i);
-  });
-
-  it("keeps real cramped text as a recommendation", () => {
-    expect(lineIssues(16, 48)[0]).toMatchObject({ kind: "recommendation" }); // 1.14 on 14px text
+  it("ignores elements without text; keeps ordinary cramped text as low", () => {
+    expect(lineIssues(1.4, 1, "   ")).toHaveLength(0);
+    expect(lineIssues(16, 48)[0]).toMatchObject({ kind: "recommendation", severity: "low" }); // 1.14
     expect(lineIssues(22, 66)).toHaveLength(0); // 1.57 is fine
   });
 });
+
 
 describe("BUG-24 / UX-17: audit duration estimate from real history", async () => {
   const runsMod = await import("../server/runs");

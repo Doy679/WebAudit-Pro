@@ -32,24 +32,23 @@ export function typographyChecks(page: PageSnapshot, tokens: Tokens): RawIssue[]
     }
 
     const lh = e.css.lineHeight;
-    // BUG-25: an element shorter than half a line of text shows no text (e.g. an empty spacer <p>), so its
-    // line-height can't make anything cramped. Ratios below 0.5 would make lines overlap: possible, but far more
-    // often a spacer or styling trick, so they go to review rather than being reported as a confident fix.
-    const visible = e.box.h >= fs * 0.5;
-    if (e.role === "text" && lh && fs <= 20 && lh / fs < tokens.bodyLineHeightMin && visible) {
-      const implausible = lh / fs < 0.5;
+    // BUG-25: very small values are real (verified in a real browser: e.g. line-height 0.1 = 1.4px on 14px text, and
+    // the text still paints outside its 1px-tall box). Such text overlaps itself as soon as it wraps, so the finding
+    // is kept and explained rather than dropped as "implausible".
+    if (e.role === "text" && lh && fs <= 20 && lh / fs < tokens.bodyLineHeightMin) {
+      const overlapping = lh / fs < 0.5;
       issues.push(
         makeIssue(page, {
           type: "typography",
           rule: "line-height-tight",
-          kind: implausible ? "needs-review" : "recommendation",
-          severity: "low",
-          confidence: implausible ? 0.4 : 0.7,
+          kind: "recommendation",
+          severity: overlapping ? "medium" : "low",
+          confidence: 0.7,
           title: "Body text lines are cramped",
           current: `line-height: ${(lh / fs).toFixed(2)} (${lh}px on ${fs}px text)`,
           proposed: `line-height: ${tokens.bodyLineHeightMin}–1.6`,
-          recommendation: (implausible
-            ? "This line height is so small that lines would overlap. Check visually whether this is real text or a spacer before changing it. "
+          recommendation: (overlapping
+            ? `At ${(lh / fs).toFixed(2)} the line height is smaller than the text itself: the text is drawn outside its box, and if it wraps (for example on a narrow screen) the lines overlap. `
             : "") + "Increase line height for paragraphs." + elementorHint(e, "Style → Typography → Line-Height"),
           element: e,
         }),
