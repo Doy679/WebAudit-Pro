@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
+import { seedKnownTargets } from "./google/target-seed";
 
 // Loaded at runtime so bundlers never try to resolve the prefix-only "node:sqlite" builtin.
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
@@ -153,6 +154,26 @@ CREATE TABLE IF NOT EXISTS google_tasks (
   error TEXT, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS google_tasks_status ON google_tasks(status, created_at);
+-- PageSpeed monitoring targets: the pages measured on every run for a project (homepage, state landing pages…).
+-- Seeded from a verified inventory; licensing and selection are owner/admin decisions. Projects without rows keep
+-- the old behaviour (start page + the latest audit's pages).
+CREATE TABLE IF NOT EXISTS pagespeed_targets (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  url TEXT, label TEXT NOT NULL, "group" TEXT NOT NULL CHECK ("group" IN ('homepage','state','custom')), state_code TEXT,
+  licensing_status TEXT NOT NULL CHECK (licensing_status IN ('eligible','license_pending','not_licensed')),
+  verification_status TEXT NOT NULL CHECK (verification_status IN ('verified','needs_url_review','no_landing_page')),
+  verification_note TEXT, verified_at TEXT, selected INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE (project_id, label)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pagespeed_targets_url ON pagespeed_targets(project_id, url) WHERE url IS NOT NULL;
+-- One confirmed "Run selected PageSpeed checks": what was planned. Its requests are google_tasks tagged with its id.
+CREATE TABLE IF NOT EXISTS pagespeed_target_runs (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, devices TEXT NOT NULL,
+  urls INTEGER NOT NULL, batches INTEGER NOT NULL, requests INTEGER NOT NULL, cache_hits INTEGER NOT NULL, skip_cache INTEGER NOT NULL,
+  -- URL + device pairs answered from the 6-hour cache (no task was queued for them): [{url, strategy, batch}]
+  cached_json TEXT NOT NULL DEFAULT '[]', created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL
+);
 -- GQA-07: who added, replaced or removed a Google credential, and when. Never the value.
 CREATE TABLE IF NOT EXISTS credential_events (
   id TEXT PRIMARY KEY, credential TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('added','replaced','removed')),
@@ -213,6 +234,7 @@ export function getDb(): DB {
     db.exec("ROLLBACK");
     throw e;
   }
+  seedKnownTargets(db);
   globalForDb.__webauditDb = { path, db };
   return db;
 }

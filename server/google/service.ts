@@ -21,7 +21,8 @@ let googleFetch: typeof fetch = (...args) => fetch(...args);
 /** Tests replace the network layer; production uses global fetch. */
 export function setGoogleFetch(f: typeof fetch) { googleFetch = f; }
 
-const PSI_CACHE_MS = 6 * 3_600_000;
+/** Google results younger than this are reused instead of requesting a new measurement. */
+export const PSI_CACHE_MS = 6 * 3_600_000;
 const GSC_CACHE_MS = 6 * 3_600_000;
 const INSPECTION_DAILY_LIMIT = 2000; // Google's per-property URL Inspection quota
 const sha = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 16);
@@ -213,7 +214,7 @@ function checkRun(projectId: string, runId?: string) {
  * Queues PageSpeed requests. A URL + device that is already queued or running is not queued again, whatever
  * the "skip cache" option (BUG-04: one form was submitted 12 times in 49 s).
  */
-export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean }): { queued: string[]; alreadyQueued: number; recentlyMeasured: number } {
+export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean; tag?: { targetRun: string; batch: number } }): { queued: string[]; alreadyQueued: number; recentlyMeasured: number } {
   assertCan(user, "audit:start");
   const project = getProject(user, projectId);
   if (!googleConfig().apiKey) throw new Error("PageSpeed Insights needs a Google API key. An admin can add it in Google Connections.");
@@ -241,7 +242,7 @@ export function queuePsi(user: User, projectId: string, p: { urls: string[]; str
     for (const url of urls) for (const strategy of strategies) {
       if (inFlight.has(`${url}|${strategy}`)) { alreadyQueued++; continue; }
       if (fresh.has(`${url}|${strategy}`)) { recentlyMeasured++; continue; }
-      queued.push(queue(user, "psi", projectId, p.runId, { url, strategy, force: !!p.force }));
+      queued.push(queue(user, "psi", projectId, p.runId, { url, strategy, force: !!p.force, ...p.tag }));
     }
     return { queued, alreadyQueued, recentlyMeasured };
   });
