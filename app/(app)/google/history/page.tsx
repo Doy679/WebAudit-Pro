@@ -18,7 +18,14 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
 
   const psi = psiResults(user, { projectId: project.id, limit: 1000 }).filter((r) => r.result);
   const groups = new Map<string, typeof psi>();
-  for (const r of psi) groups.set(`${r.url}|${r.strategy}`, [...(groups.get(`${r.url}|${r.strategy}`) ?? []), r]);
+  // One entry per real measurement: cache reuses copy Google's original timestamp, so they collapse here (BUG-04).
+  const seen = new Set<string>();
+  for (const r of psi) {
+    const k = `${r.url}|${r.strategy}`;
+    if (seen.has(`${k}|${r.fetched_at}`)) continue;
+    seen.add(`${k}|${r.fetched_at}`);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
   const perf = gscHistory(user, project.id, "performance", 20).filter((h) => h.status === "ok");
   const insp = gscHistory(user, project.id, "inspection", 500).filter((h) => h.status === "ok");
   const byUrl = new Map<string, typeof insp>();
@@ -43,7 +50,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
           {groups.size === 0 ? <p className="text-sm text-slate-500">No PageSpeed history yet.</p> : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
-                <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Page</th><th className="pr-3">Device</th><th className="pr-3">Runs</th><th className="pr-3">Perf. first → latest</th><th className="pr-3">LCP change</th><th className="pr-3">CLS change</th><th>Latest</th></tr></thead>
+                <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Page</th><th className="pr-3">Device</th><th className="pr-3" title="Distinct Google measurements; cached reuses are not counted">Measurements</th><th className="pr-3">Perf. first → latest</th><th className="pr-3">LCP change</th><th className="pr-3">CLS change</th><th>Latest</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {[...groups.values()].map((rows) => {
                     const latest = rows[0], first = rows[rows.length - 1];

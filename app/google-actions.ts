@@ -61,9 +61,11 @@ export async function queuePsiAction(_: ActionState, fd: FormData): Promise<Acti
   return attempt(async () => {
     const user = await requireUser("audit:start");
     const strategies = fd.getAll("strategy").map(String) as ("mobile" | "desktop")[];
-    const ids = queuePsi(user, str(fd, "projectId"), { urls: lines(fd, "urls"), strategies, runId: str(fd, "runId") || undefined, force: fd.get("force") === "on" });
+    const { queued, alreadyQueued } = queuePsi(user, str(fd, "projectId"), { urls: lines(fd, "urls"), strategies, runId: str(fd, "runId") || undefined, force: fd.get("force") === "on" });
     revalidatePath("/google/pagespeed");
-    return { ok: `${ids.length} PageSpeed request${ids.length === 1 ? "" : "s"} queued. Each takes about 10–40 seconds at Google; results appear below.` };
+    const skipped = alreadyQueued ? ` ${alreadyQueued} already waiting in the queue ${alreadyQueued === 1 ? "was" : "were"} not added again.` : "";
+    if (!queued.length) return { ok: `Nothing new to queue.${skipped} Results appear below when ready.` };
+    return { ok: `${queued.length} PageSpeed request${queued.length === 1 ? "" : "s"} queued. Each takes about 10–40 seconds at Google; results under 6 hours old are reused unless you skip the cache.${skipped}` };
   });
 }
 

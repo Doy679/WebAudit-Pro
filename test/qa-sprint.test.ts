@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), "webaudit-qa-"));
 process.env.WEBAUDIT_DATA_DIR = dir;
 process.env.WEBAUDIT_SECRET = "test-secret-test-secret-test-secret-1234";
 
-const { closeDb, run, newId } = await import("../server/db");
+const { closeDb, run, newId, all, get } = await import("../server/db");
 const auth = await import("../server/auth");
 const projects = await import("../server/projects");
 const g = await import("../server/google/service");
@@ -158,3 +158,28 @@ function outsiderInProject() {
   }
   return qaMember;
 }
+
+describe("BUG-04: PageSpeed requests are idempotent and cache reuse doesn't inflate history", () => {
+  it("a second submit while the same URL + device is still queued creates no new request", () => {
+    config.saveGoogleCredentials({ apiKey: "AIzaTESTKEY" });
+    const urls = ["https://capitalhomemortgage.com/", "https://capitalhomemortgage.com/clarksville/"];
+    const first = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
+    expect(first.queued).toHaveLength(4);
+    const again = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
+    expect(again.queued).toHaveLength(0);
+    expect(again.alreadyQueued).toBe(4);
+    const forced = g.queuePsi(admin, projectId, { urls, strategies: ["mobile"], force: true }); // "skip cache" doesn't bypass the in-flight check either
+    expect(forced.queued).toHaveLength(0);
+    expect(get<{ n: number }>("SELECT COUNT(*) AS n FROM google_tasks WHERE status = 'pending'")!.n).toBe(4);
+  });
+
+  it("reusing a cached result for the same audit link doesn't add a duplicate history row", async () => {
+    run("UPDATE google_tasks SET status = 'completed' WHERE status = 'pending'");
+    const u = "https://capitalhomemortgage.com/reuse/";
+    psi(u, "mobile", new Date().toISOString(), 70);
+    const before = all<{ id: string }>("SELECT id FROM psi_results WHERE url = ?", u).length;
+    const { queued } = g.queuePsi(admin, projectId, { urls: [u], strategies: ["mobile"] });
+    expect(await g.processGoogleTask(queued[0])).toBe("completed");
+    expect(all("SELECT id FROM psi_results WHERE url = ?", u)).toHaveLength(before);
+  });
+});

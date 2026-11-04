@@ -62,7 +62,7 @@ describe("PageSpeed tasks", () => {
 
   it("runs queued requests, stores results with timestamps, and serves repeats from cache", async () => {
     respond = () => json(psiSample());
-    const ids = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile", "desktop"] });
+    const ids = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile", "desktop"] }).queued;
     expect(ids).toHaveLength(2);
     for (const id of ids) await g.processGoogleTask(id);
     expect(calls).toHaveLength(2);
@@ -70,15 +70,16 @@ describe("PageSpeed tasks", () => {
     expect(latest.status).toBe("ok");
     expect(latest.result!.scores.performance).toBe(42);
 
-    const again = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile"] });
+    const again = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile"] }).queued;
     await g.processGoogleTask(again[0]);
     expect(calls).toHaveLength(2); // cached, no new request
-    expect(get<{ n: number }>("SELECT COUNT(*) AS n FROM psi_results WHERE strategy = 'mobile'")!.n).toBe(2);
+    // BUG-04: a cache reuse for the same (unlinked) context adds no extra history row.
+    expect(get<{ n: number }>("SELECT COUNT(*) AS n FROM psi_results WHERE strategy = 'mobile'")!.n).toBe(1);
   });
 
   it("records quota errors as a clear unavailable state, without inventing scores", async () => {
     respond = () => json({ error: { code: 429, message: "Quota exceeded for quota metric 'Queries' and limit 'Queries per day'" } }, 429);
-    const [id] = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/a/"], strategies: ["mobile"], force: true });
+    const [id] = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/a/"], strategies: ["mobile"], force: true }).queued;
     await g.processGoogleTask(id);
     const r = g.latestPsi(admin, projectId, "https://capitalhomemortgage.com/a/", "mobile")!;
     expect(r).toMatchObject({ status: "error", error_kind: "quota", result: null });
@@ -89,7 +90,7 @@ describe("PageSpeed tasks", () => {
     runs.importResults(runId, [], [{ url: "https://capitalhomemortgage.com/", ok: true, status: 200 }]);
     respond = () => json(psiSample());
     for (const pass of [1, 2]) {
-      const [id] = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile"], runId, force: true });
+      const [id] = g.queuePsi(admin, projectId, { urls: ["https://capitalhomemortgage.com/"], strategies: ["mobile"], runId, force: true }).queued;
       await g.processGoogleTask(id);
       const rows = issues.listIssues(admin, { runId, pageSize: 100 }).rows;
       expect(rows.filter((r) => r.metric_key === "render-blocking-insight")).toHaveLength(1);

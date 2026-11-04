@@ -199,7 +199,11 @@ function checkRun(projectId: string, runId?: string) {
   if (runId && !get("SELECT 1 FROM audit_runs WHERE id = ? AND project_id = ?", runId, projectId)) throw new NotFoundError("Audit run not found in this project.");
 }
 
-export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean }): string[] {
+/**
+ * Queues PageSpeed requests. A URL + device that is already queued or running is not queued again, whatever
+ * the "skip cache" option (BUG-04: one form was submitted 12 times in 49 s).
+ */
+export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean }): { queued: string[]; alreadyQueued: number } {
   assertCan(user, "audit:start");
   const project = getProject(user, projectId);
   if (!googleConfig().apiKey) throw new Error("PageSpeed Insights needs a Google API key. An admin can add it in Google Connections.");
@@ -212,7 +216,18 @@ export function queuePsi(user: User, projectId: string, p: { urls: string[]; str
   const limit = projectGoogle(user, projectId).psi_max_urls;
   if (urls.length > limit) throw new Error(`PageSpeed requests are limited to at most ${limit} URLs per run for this project (change it in the project's Google settings).`);
   checkRun(projectId, p.runId);
-  return urls.flatMap((url) => strategies.map((strategy) => queue(user, "psi", projectId, p.runId, { url, strategy, force: !!p.force })));
+  return tx(() => {
+    const inFlight = new Set(all<{ k: string }>(
+      `SELECT json_extract(payload_json, '$.url') || '|' || json_extract(payload_json, '$.strategy') AS k FROM google_tasks
+       WHERE project_id = ? AND type = 'psi' AND status IN ('pending', 'running')`, projectId).map((r) => r.k));
+    const queued: string[] = [];
+    let alreadyQueued = 0;
+    for (const url of urls) for (const strategy of strategies) {
+      if (inFlight.has(`${url}|${strategy}`)) { alreadyQueued++; continue; }
+      queued.push(queue(user, "psi", projectId, p.runId, { url, strategy, force: !!p.force }));
+    }
+    return { queued, alreadyQueued };
+  });
 }
 
 function boundProperty(user: User, projectId: string) {
@@ -280,8 +295,11 @@ async function doPsi(t: Task, p: { url: string; strategy: Strategy; force: boole
     const cached = get<{ id: string; fetched_at: string; analysis_ts: string; lighthouse_version: string; result_json: string; crux_json: string | null }>(
       "SELECT * FROM psi_results WHERE project_id = ? AND url = ? AND strategy = ? AND status = 'ok' ORDER BY fetched_at DESC LIMIT 1", t.project_id, p.url, p.strategy);
     if (cached && Date.now() - Date.parse(cached.fetched_at) < PSI_CACHE_MS) {
-      // Reuse Google's earlier result (original timestamps kept) instead of spending quota.
-      run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, analysis_ts, lighthouse_version, result_json, crux_json, created_by)
+      // Reuse Google's earlier result (original timestamps kept) instead of spending quota. A copy is stored only
+      // to link it to a different audit; otherwise it would show up in History as an extra run (BUG-04).
+      const linked = get("SELECT 1 FROM psi_results WHERE project_id = ? AND url = ? AND strategy = ? AND fetched_at = ? AND run_id IS ?",
+        t.project_id, p.url, p.strategy, cached.fetched_at, t.run_id);
+      if (!linked) run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, analysis_ts, lighthouse_version, result_json, crux_json, created_by)
            VALUES (?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)`, newId(), t.project_id, t.run_id, p.url, p.strategy, cached.fetched_at, cached.analysis_ts, cached.lighthouse_version, cached.result_json, cached.crux_json, t.created_by);
       if (t.run_id) importProviderFindings(t.run_id, psiFindings(JSON.parse(cached.result_json), p.url));
       return;
