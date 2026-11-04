@@ -283,3 +283,66 @@ describe("BUG-19 root cause: crop from a screen width where the element is actua
     expect(cropSource(nowhere as never)).toBeNull();
   });
 });
+
+describe("B1 approved: consolidate whole-site CrUX findings (reversible, nothing deleted)", async () => {
+  const runsMod = await import("../server/runs");
+  const scopeMod = await import("../server/google/cwv-scope");
+  const issuesMod = await import("../server/issues");
+  let runId = "";
+  const start = "https://capitalhomemortgage.com/";
+  beforeAll(() => {
+    runId = runsMod.insertRun(admin, projectId, { startUrl: start } as never);
+    runsMod.finishRun(runId, "completed");
+    const origin = { source: "psi-crux", scope: "origin", metrics: { lcp: { p75: 4060, unit: "ms", category: "poor" } } };
+    const site = { source: "psi-crux", scope: "url", metrics: { lcp: { p75: 4060, unit: "ms", category: "poor" } } };
+    ["https://capitalhomemortgage.com/c2/", start, "https://capitalhomemortgage.com/c3/"].forEach((u, n) => {
+      run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, result_json) VALUES (?, ?, ?, ?, 'mobile', 'ok', '2026-11-04T02:16:00.000Z', ?)`,
+        newId(), projectId, runId, u, JSON.stringify({ scores: {}, lab: {}, field: site, originField: origin }));
+      run(`INSERT INTO issues (id, run_id, project_id, code, fingerprint, type, rule, kind, severity, confidence, title, url, pages_json, viewports_json, current_value, recommendation, evidence_json, occurrences_json, captured_at, updated_at, provider)
+           VALUES (?, ?, ?, ?, ?, 'cwv', 'crux:lcp', 'confirmed', 'high', 0.9, 'Poor real-user LCP on mobile', ?, ?, '[]', '4.1 s p75 (poor, LCP)', 'x', ?, '[]', 't', 't', 'psi')`,
+        newId(), runId, projectId, `CWV-00${n + 1}0`, `cfp${n}`, u, JSON.stringify([u]), JSON.stringify({ screenshots: [], boxes: [], computedCss: { provider: "psi", metricKey: "crux:lcp", strategy: "mobile" } }));
+    });
+  });
+
+  it("keeps one finding per metric+device (the start page's), merges the copies, and matches the dry run", () => {
+    const dry = scopeMod.originCwvImpact(runId);
+    const r = scopeMod.consolidateOriginCwv(admin, runId);
+    expect(r).toMatchObject({ merged: 2, kept: 1, skipped: 0 });
+    const rows = all<{ code: string; url: string; verification_status: string; duplicate_of: string | null; notes: string }>("SELECT code, url, verification_status, duplicate_of, notes FROM issues WHERE run_id = ? ORDER BY code", runId);
+    const kept = rows.find((x) => x.url === start)!;
+    expect(kept.duplicate_of).toBeNull();
+    expect(kept.notes).toMatch(/whole-site value.*2 other pages/i);
+    expect(rows.filter((x) => x.duplicate_of).every((x) => x.verification_status === "false_positive")).toBe(true);
+    expect(scopeMod.originCwvImpact(runId).highNow).toBe(dry.highAfter);
+    expect(all("SELECT id FROM issues WHERE run_id = ?", runId)).toHaveLength(3); // nothing deleted
+    expect(all("SELECT id FROM issue_events WHERE action = 'merged_duplicate'")).toHaveLength(2);
+    expect(scopeMod.consolidateOriginCwv(admin, runId)).toMatchObject({ merged: 0 }); // idempotent
+  });
+
+  it("merged copies are never carried into future audits as false positives", () => {
+    const next = runsMod.insertRun(admin, projectId, { startUrl: start } as never);
+    const dupFp = get<{ f: string }>("SELECT fingerprint AS f FROM issues WHERE run_id = ? AND duplicate_of IS NOT NULL LIMIT 1", runId)!.f;
+    runsMod.importResults(next, [{
+      id: "CWV-0001", type: "cwv", rule: "crux:lcp", kind: "confirmed", severity: "high", confidence: 0.9, title: "LCP", fingerprint: dupFp,
+      location: { url: "https://capitalhomemortgage.com/c2/", pages: ["https://capitalhomemortgage.com/c2/"], viewports: [] },
+      instanceCount: 1, occurrences: [], recommendation: "x", current: "4.1 s", proposed: "≤ 2.5 s", evidence: { screenshots: [], boxes: [], capturedAt: "t" }, review: { status: "pending", notes: "", reviewer: null },
+    }] as never, []);
+    expect(get<{ v: string }>("SELECT verification_status AS v FROM issues WHERE run_id = ?", next)!.v).toBe("unverified");
+  });
+
+  it("shows merged copies as merged, and can be reverted exactly", () => {
+    const dup = get<IssueLike>("SELECT * FROM issues WHERE run_id = ? AND duplicate_of IS NOT NULL LIMIT 1", runId)!;
+    expect(issuesMod.statusWords({ ...dup, client_decision: null }).team).toMatch(/merged into/i);
+    const r = scopeMod.revertOriginCwv(admin, runId);
+    expect(r.restored).toBe(2);
+    expect(all<{ v: string }>("SELECT verification_status AS v FROM issues WHERE run_id = ?", runId).map((x) => x.v)).toEqual(["unverified", "unverified", "unverified"]);
+    expect(all("SELECT id FROM issues WHERE run_id = ? AND duplicate_of IS NOT NULL", runId)).toHaveLength(0);
+  });
+
+  it("needs a reviewer", () => {
+    const viewer = auth.createUser({ email: "dev2@example.com", name: "Dev2", password: "correct horse battery", role: "developer" });
+    projects.addMember(admin, projectId, viewer.id);
+    expect(() => scopeMod.consolidateOriginCwv(viewer, runId)).toThrow();
+  });
+});
+type IssueLike = { kind: string; verification_status: string; review_status: string; implementation_status: string; duplicate_of: string | null };

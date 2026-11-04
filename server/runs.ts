@@ -242,7 +242,7 @@ export function importResults(
     }
     for (const i of issues) {
       const prior = get<{ id: string; notes: string }>(
-        `SELECT id, notes FROM issues WHERE project_id = ? AND fingerprint = ? AND verification_status = 'false_positive' AND run_id != ?
+        `SELECT id, notes FROM issues WHERE project_id = ? AND fingerprint = ? AND verification_status = 'false_positive' AND duplicate_of IS NULL AND run_id != ?
          ORDER BY updated_at DESC LIMIT 1`, projectId, i.fingerprint, runId);
       const id = newId();
       run(`INSERT INTO issues (id, run_id, project_id, code, fingerprint, type, rule, kind, severity, confidence, title, url, pages_json, viewports_json,

@@ -62,6 +62,8 @@ export interface IssueRow {
   updated_at: string;
   evidence: { screenshots: { viewport: number; path: string }[]; annotated?: string; boxes: { x: number; y: number; w: number; h: number }[]; computedCss?: Record<string, unknown>; capturedAt: string };
   client_decision: string | null;
+  /** Set when this finding was merged into another (approved CrUX consolidation). */
+  duplicate_of?: string | null;
   /** webaudit (engine), schema (internal validator), psi, crux or gsc. */
   provider: string;
   source_ref: string | null;
@@ -110,7 +112,7 @@ const parse = (r: Record<string, unknown>): IssueRow => {
 const LIST_COLUMNS = `i.id, i.run_id, i.project_id, i.code, i.fingerprint, i.type, i.rule, i.kind, i.severity, i.confidence, i.title, i.url,
   i.pages_json, i.viewports_json, i.selector, i.elementor_id, i.shared_template, i.instance_count, i.current_value, i.proposed_value,
   i.recommendation, i.evidence_json, i.captured_at, i.verification_status, i.review_status, i.implementation_status, i.priority,
-  i.assignee_id, i.notes, i.updated_at, i.provider, i.source_ref, i.provider_ts, i.metric_key`;
+  i.assignee_id, i.notes, i.updated_at, i.provider, i.source_ref, i.provider_ts, i.metric_key, i.duplicate_of`;
 
 // Quick filters (Issues page chips). Fixed SQL fragments, chosen by a whitelisted key.
 const QUICK_SQL = {
@@ -224,7 +226,7 @@ const VERIFY: Record<string, string> = { confirm: "confirmed", false_positive: "
 // "reopen" undoes an approve / revision / reject decision from the review queue (UX-03).
 const REVIEW: Record<string, string> = { approve: "approved", request_revision: "revision_requested", reject: "rejected", reopen: "pending" };
 
-function logEvent(issueId: string, user: User, action: string, from: string | null, to: string | null, note?: string) {
+export function logEvent(issueId: string, user: User, action: string, from: string | null, to: string | null, note?: string) {
   run(`INSERT INTO issue_events (id, issue_id, user_id, actor_label, action, from_value, to_value, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     newId(), issueId, user.id, user.name, action, from, to, note?.trim() || null, now());
 }
@@ -394,9 +396,10 @@ export function reviewQueue(user: User, f: IssueFilters, position: number): Revi
  * UX-02: plain words for a finding's four separate statuses, so "Confirmed" never appears next to "Unverified".
  * Display only: stored values, exports and client links keep their existing terms.
  */
-export function statusWords(i: Pick<IssueRow, "kind" | "verification_status" | "review_status" | "implementation_status" | "client_decision">) {
+export function statusWords(i: Pick<IssueRow, "kind" | "verification_status" | "review_status" | "implementation_status" | "client_decision"> & { duplicate_of?: string | null }) {
   const detected = i.kind === "confirmed" ? "Measured problem" : i.kind === "recommendation" ? "Recommendation" : "Possible problem";
-  const team = i.verification_status === "false_positive" ? "False positive (not a real problem)"
+  const team = i.duplicate_of ? "Merged into the whole-site finding (same value)"
+    : i.verification_status === "false_positive" ? "False positive (not a real problem)"
     : i.verification_status === "confirmed" ? "Accepted by your team"
     : i.review_status === "approved" ? "Approved by your team"
     : i.review_status === "revision_requested" ? "Revision requested"

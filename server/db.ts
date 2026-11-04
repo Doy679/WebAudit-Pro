@@ -175,6 +175,8 @@ function migrate(db: DB) {
   if (!cols("audit_runs").has("cancelled_by")) db.exec("ALTER TABLE audit_runs ADD COLUMN cancelled_by TEXT REFERENCES users(id)");
   // NEW-01: Google's own error text for a failed PageSpeed request (key removed; admins only).
   if (!cols("psi_results").has("error_detail")) db.exec("ALTER TABLE psi_results ADD COLUMN error_detail TEXT");
+  // Approved CrUX consolidation: a per-page copy of a whole-site value points at the finding it was merged into.
+  if (!cols("issues").has("duplicate_of")) db.exec("ALTER TABLE issues ADD COLUMN duplicate_of TEXT");
   if (!cols("jobs").has("attempts")) db.exec("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
 }
 

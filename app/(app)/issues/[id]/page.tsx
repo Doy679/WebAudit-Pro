@@ -1,6 +1,7 @@
 import Link from "@/components/AppLink";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
+import { get } from "@/server/db";
 import { getIssue, issueReference, reviewActionsFor, statusWords } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
@@ -69,7 +70,8 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
     boxes: i.occurrences.filter((o) => o.url === i.url && o.viewport === s.viewport).flatMap((o) => o.boxes as Shot["boxes"]).slice(0, 20),
   }));
   const plain = explainIssue(i);
-  const words = statusWords(i); // UX-02: display words only; stored values and exports are unchanged
+  const words = statusWords(i);
+  const dupCode = i.duplicate_of ? get<{ code: string }>("SELECT code FROM issues WHERE id = ?", i.duplicate_of)?.code : undefined; // UX-02: display words only; stored values and exports are unchanged
   const scope = cwvDataScope(i.id); // BUG-05: page-level or whole-website real-user data
   // Only known filter parameters are carried back to the list.
   const back = new URLSearchParams([...new URLSearchParams(from ?? "")].filter(([k]) => FILTER_PARAMS.includes(k))).toString();
@@ -126,6 +128,13 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
         {reviewer && words.team === "Not reviewed yet" && <Link href={`/review?run=${i.run_id}`} className="text-xs text-accent-600 underline">Review findings one by one in the review queue</Link>}
       </div>
 
+      {i.duplicate_of ? (
+        <div className="mb-4" data-testid="merged-notice"><Notice tone="info">
+          This finding repeated a whole-site value and was merged into{" "}
+          <Link className="underline" href={`/issues/${i.duplicate_of}`}>{dupCode ?? "the whole-site finding"}</Link>, which is reported once for the site.
+          It no longer counts in totals or reports; its record and history are kept.
+        </Notice></div>
+      ) : null}
       {i.shared_template ? (
         <div className="mb-4"><Notice tone="warn">
           Shared template or component: this appears on {i.pages.length} page{i.pages.length === 1 ? "" : "s"}{i.instance_count > 1 ? ` (${i.instance_count} instances)` : ""}. Changing it in the global template or widget affects all of them.
