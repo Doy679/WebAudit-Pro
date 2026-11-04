@@ -5,6 +5,7 @@ import type { User } from "./auth";
 import { assertProjectAccess } from "./permissions";
 import { inspections, latestGsc, projectGoogle, psiResults, type PsiRow } from "./google/service";
 import { searchConsoleStatus } from "./google/gsc-status";
+import type { FieldData } from "./google/types";
 
 type Counts = { confirmed: number; recommendation: number; needsReview: number; high: number };
 
@@ -63,7 +64,13 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
   sections.push(engine("a11y", "Accessibility", ["a11y"], [{ label: "Lighthouse accessibility (mobile)", value: score(mobile, "accessibility"), note: "0–100, Google lab test" }]));
   sections.push(engine("seo", "Technical SEO", ["seo", "content", "navigation"], [{ label: "Lighthouse SEO (mobile)", value: score(mobile, "seo"), note: "0–100, Google lab test" }]));
 
-  const field = mobile?.crux ?? mobile?.result?.field ?? null;
+  // Stored results from before the origin_fallback fix: page data identical to the whole-site data is whole-site data.
+  const fieldOf = (r: PsiRow | undefined): FieldData | null => {
+    const f = r?.crux ?? r?.result?.field ?? null;
+    const o = r?.result?.originField;
+    if (f && o && f.scope === "url" && JSON.stringify(Object.values(f.metrics).map((m) => m?.p75)) === JSON.stringify(Object.values(o.metrics).map((m) => m?.p75))) return { ...f, scope: "origin" };
+    return f;
+  };
   sections.push(mobile?.result || desktop?.result ? {
     key: "performance", title: "Performance", state: "ok", source: "Google PageSpeed Insights",
     findings: run ? counts(run.id, TYPES.performance) : undefined,
@@ -72,7 +79,8 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
       { label: "Performance score (desktop)", value: score(desktop, "performance") },
       { label: "LCP (mobile, lab)", value: mobile?.result?.lab.lcp?.display ?? null },
       { label: "CLS (mobile, lab)", value: mobile?.result?.lab.cls?.display ?? null },
-      { label: "Real-user Core Web Vitals", value: field ? Object.entries(field.metrics).map(([k, m]) => `${k.toUpperCase()} ${m!.category.replace("-", " ")}`).join(", ") : null, note: field ? "Chrome UX Report, p75, 28 days" : "Google has no field data" },
+      { label: "Real-user Core Web Vitals (mobile)", value: fieldSummary(fieldOf(mobile), "mobile"), note: fieldOf(mobile) ? "Chrome UX Report, p75, 28 days" : "Google has no field data" },
+      { label: "Real-user Core Web Vitals (desktop)", value: fieldSummary(fieldOf(desktop), "desktop"), note: fieldOf(desktop) ? "Chrome UX Report, p75, 28 days" : "Google has no field data" },
     ],
     href: `/google/pagespeed?project=${projectId}`,
   } : { key: "performance", title: "Performance", state: "not-run", why: "PageSpeed Insights not run for the start page", metrics: [], source: "Google PageSpeed Insights", href: `/google/pagespeed?project=${projectId}` });
@@ -118,3 +126,10 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
 
 /** Pages of a run, used to pre-fill Google requests. */
 export const okPages = (runId: string) => all<{ url: string }>("SELECT url FROM run_pages WHERE run_id = ? AND ok = 1 ORDER BY url", runId).map((r) => r.url);
+
+/** BUG-06: one device's real-user summary, labelled with its scope (this page vs whole site). */
+export function fieldSummary(field: FieldData | null | undefined, _device: "mobile" | "desktop"): string | null {
+  if (!field || !Object.keys(field.metrics).length) return null;
+  const scope = field.scope === "origin" ? "whole site" : "this page";
+  return `${Object.entries(field.metrics).map(([k, m]) => `${k.toUpperCase()} ${m!.category.replace("-", " ")}`).join(", ")} (${scope})`;
+}

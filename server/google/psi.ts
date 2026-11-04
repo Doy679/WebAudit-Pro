@@ -33,6 +33,9 @@ const PSI_CAT: Record<string, FieldMetric["category"]> = { FAST: "good", AVERAGE
 
 function field(exp: Json | undefined, scope: "url" | "origin"): FieldData | null {
   if (!exp?.metrics || !Object.keys(exp.metrics).length) return null;
+  // BUG-05: when a page lacks enough traffic, PageSpeed puts the whole site's data in loadingExperience and marks
+  // it origin_fallback. That is site-level data, not this page's.
+  if (scope === "url" && exp.origin_fallback === true) scope = "origin";
   const metrics: FieldData["metrics"] = {};
   for (const [name, m] of Object.entries<Json>(exp.metrics)) {
     const key = FIELD_KEYS[name];
@@ -195,14 +198,22 @@ export function psiFindings(r: PsiResult, pageUrl: string): ProviderFinding[] {
     });
   }
 
-  if (r.field?.scope === "url") {
+  if (r.field) {
+    // Whole-site data becomes one finding per metric + device for the site (same fingerprint from every page).
+    const site = r.field.scope === "origin";
+    let origin = pageUrl;
+    try { origin = `${new URL(pageUrl).origin}/`; } catch { /* keep page */ }
     for (const [k, m] of Object.entries(r.field.metrics) as [FieldKey, FieldMetric][]) {
       if (m.category !== "poor") continue;
       out.push({
-        ...base, provider: "psi", type: "cwv", kind: "confirmed", severity: k === "fcp" || k === "ttfb" ? "medium" : "high", confidence: 0.9,
-        rule: `crux:${k}`, metricKey: `crux:${k}`, title: `Poor real-user ${FIELD_LABEL[k][0]} on ${r.strategy}`,
+        ...base, ...(site ? { url: origin, sourceRef: psiReportUrl(origin, r.strategy) } : {}),
+        provider: "psi", type: "cwv", kind: "confirmed", severity: k === "fcp" || k === "ttfb" ? "medium" : "high", confidence: 0.9,
+        rule: site ? `crux:origin:${k}` : `crux:${k}`, metricKey: `crux:${k}`,
+        title: `Poor real-user ${FIELD_LABEL[k][0]} on ${r.strategy}${site ? " (whole site)" : ""}`,
         current: fmtField(k, m), proposed: FIELD_LABEL[k][1],
-        evidence: "Chrome UX Report real-user data (75th percentile, previous 28 days) returned by PageSpeed Insights.",
+        evidence: site
+          ? "Chrome UX Report real-user data for the whole site (origin), 75th percentile, previous 28 days, returned by PageSpeed Insights. Google had too few visits to report this page on its own."
+          : "Chrome UX Report real-user data for this page (75th percentile, previous 28 days) returned by PageSpeed Insights.",
         recommendation: `Real visitors experience slow ${FIELD_LABEL[k][0]}. Fix the related lab opportunities, then confirm improvement in field data over the following 28 days.`,
       });
     }

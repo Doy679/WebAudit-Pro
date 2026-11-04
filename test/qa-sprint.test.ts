@@ -299,3 +299,42 @@ describe("BUG-07 / BUG-08 / UX-08: Re-Audit comparisons", async () => {
     expect(() => compareProjectRuns(admin, after, after)).toThrow(/two different audits/i);
   });
 });
+
+describe("BUG-05: whole-site (origin) real-user data is labelled and not repeated per page", async () => {
+  const psiMod = await import("../server/google/psi");
+  const { psiSample } = await import("./fixtures/google/psi-sample");
+  const poorField = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, ...extra, overall_category: "SLOW",
+    metrics: { LARGEST_CONTENTFUL_PAINT_MS: { percentile: 4060, category: "SLOW" }, CUMULATIVE_LAYOUT_SHIFT_SCORE: { percentile: 60, category: "SLOW" } },
+  });
+  const sample = (page: string, loading: Record<string, unknown>) => ({ ...psiSample(), id: page, loadingExperience: loading, originLoadingExperience: poorField("https://capitalhomemortgage.com") });
+
+  it("treats PageSpeed's origin fallback as whole-site data", () => {
+    const page = "https://capitalhomemortgage.com/brian-wheeler/";
+    expect(psiMod.parsePsi(sample(page, poorField("https://capitalhomemortgage.com", { origin_fallback: true })), "mobile").field?.scope).toBe("origin");
+    expect(psiMod.parsePsi(sample(page, poorField(page)), "mobile").field?.scope).toBe("url");
+  });
+
+  it("creates one whole-site finding per metric and device, whichever page reported it", () => {
+    const pages = ["https://capitalhomemortgage.com/", "https://capitalhomemortgage.com/brian-wheeler/", "https://capitalhomemortgage.com/clarksville/"];
+    const fps = new Set<string>();
+    for (const p of pages) {
+      const r = psiMod.parsePsi(sample(p, poorField("https://capitalhomemortgage.com", { origin_fallback: true })), "mobile");
+      for (const f of psiMod.psiFindings(r, p).filter((x) => x.type === "cwv")) {
+        expect(f.title).toMatch(/whole site/i);
+        fps.add(g.providerFingerprint(f));
+      }
+    }
+    expect(fps.size).toBe(2); // LCP + CLS once each, not 6
+  });
+});
+
+describe("BUG-06: real-user summary per device", async () => {
+  const { fieldSummary } = await import("../server/health");
+  it("labels the device and the data scope, so a poor desktop value can't hide behind a mobile 'good'", () => {
+    const f = (cat: string, scope: "url" | "origin") => ({ source: "psi-crux" as const, scope, metrics: { inp: { p75: 542, unit: "ms" as const, category: cat as never } } });
+    expect(fieldSummary(f("good", "url"), "mobile")).toBe("INP good (this page)");
+    expect(fieldSummary(f("poor", "origin"), "desktop")).toBe("INP poor (whole site)");
+    expect(fieldSummary(null, "desktop")).toBeNull();
+  });
+});
