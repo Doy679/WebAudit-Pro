@@ -363,6 +363,12 @@ describe("WebAudit Pro end to end", () => {
     const rrt = page.getByTestId("open-rrt").first();
     expect(await rrt.getAttribute("href")).toMatch(/^https:\/\/search\.google\.com\/test\/rich-results\?url=http%3A%2F%2F127\.0\.0\.1/);
     expect(await page.getByText("Event: Not eligible: missing or invalid required properties").count()).toBeGreaterThan(0);
+    // BUG-12 retest: a fresh audit (current rules) reports the empty datePublished once, as empty, and never "wrong type".
+    expect(await page.getByText('Recommended property "datePublished" is empty').count()).toBeGreaterThan(0);
+    expect(await page.getByText('"datePublished" has the wrong type').count()).toBe(0);
+    expect(await page.getByText('Recommended property "datePublished" is missing').count()).toBe(0);
+    expect(await page.getByText("Article: Not eligible").count()).toBe(0);
+    expect(await page.getByTestId("sd-rules-version").first().innerText()).toBe("Checked with rules 2026-11-04");
     await snap("google-structured-data");
 
     await page.goto(`${APP}/google/pagespeed?project=${projectId}`);

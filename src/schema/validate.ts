@@ -278,7 +278,11 @@ export function structuredDataIssues(page: PageSnapshot, result: SdResult): RawI
     const typeLabel = item.types.join("/") || "Untyped item";
     for (const issue of item.issues) {
       if (issue.ruleId === "recommended" && !item.googleFeature) continue;
-      const m = KIND[issue.ruleId];
+      // "empty" (BUG-12) takes its weight from the property: required → confirmed error, recommended → low.
+      // Unknown rule ids fall back to "needs review" so a new verdict can never crash an audit.
+      const m = issue.ruleId === "empty"
+        ? (issue.severity === "error" ? { kind: "confirmed" as const, severity: "medium" as const, confidence: 0.9 } : { kind: "recommendation" as const, severity: "low" as const, confidence: 0.8 })
+        : KIND[issue.ruleId] ?? { kind: "needs-review" as const, severity: "low" as const, confidence: 0.5 };
       const rule = FEATURES.find((f) => f.feature === item.googleFeature);
       const raw = makeIssue(page, {
         type: "structured-data", rule: `schema:${issue.ruleId}`, kind: m.kind, severity: m.severity, confidence: m.confidence,

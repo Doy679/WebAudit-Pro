@@ -40,10 +40,17 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
         </div>
       )} />
       <div className="mb-4"><Notice>
-        Internal validation (rules version {RULES_VERSION}) is not an official Google Rich Results Test result, and Google doesn&apos;t guarantee rich results even for eligible pages.
+        Internal validation (current rules version {RULES_VERSION}; each page shows the version it was checked with) is not an official Google Rich Results Test result, and Google doesn&apos;t guarantee rich results even for eligible pages.
         Use <strong>Open in Google Rich Results Test</strong> to confirm. Google&apos;s own indexed status appears when Search Console URL inspection has been run.
       </Notice></div>
 
+      {pages.some((p) => p.rules_version < "2026-11-04") && (
+        <div className="mb-4"><Notice tone="warn">
+          This audit was checked with older rules ({[...new Set(pages.map((p) => p.rules_version.split(" ")[0]))].join(", ")}). Those rules could report one empty value
+          (for example <code>datePublished: &quot;&quot;</code>) as both &quot;missing&quot; and &quot;wrong type&quot;, and could call an Article &quot;not eligible&quot;.
+          The current rules ({RULES_VERSION.split(" ")[0]}) give one verdict per property; the next audit uses them. Stored results are shown as recorded.
+        </Notice></div>
+      )}
       {!runRow ? <Empty title="No completed audits yet">Run an audit with the Structured data category to check schema.</Empty> : pages.length === 0 ? (
         <Empty title="No structured data was checked in this audit">Either no pages contained structured data, or the audit ran without the Structured data category.</Empty>
       ) : (
@@ -58,6 +65,7 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
                 }>
                   <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                     <Source kind="schema" when={p.checked_at} />
+                    <span className="text-slate-600" data-testid="sd-rules-version">Checked with rules {p.rules_version.split(" ")[0]}</span>
                     <span>Google-indexed rich results:</span>
                     {insp?.data?.richResults ? (
                       <span><Source kind="gsc" when={insp.fetched_at} /> verdict {insp.data.richResults.verdict ?? "n/a"}: {insp.data.richResults.items.map((i: { type: string }) => i.type).join(", ") || "none detected"}</span>

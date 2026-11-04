@@ -114,6 +114,11 @@ describe("runAudit (integration)", () => {
     const home = result.structured.find((s) => new URL(s.url).pathname === "/")!;
     // Valid schema and a Google candidate; recommended properties (address, telephone…) are reported as warnings.
     expect(home.result.items[0]).toMatchObject({ types: ["Organization"], status: "warnings", eligibility: "candidate", googleFeature: "Organization" });
+    // BUG-12 (retest): Article with datePublished: "" gets exactly one verdict, and Article has no required properties.
+    const problems = result.structured.find((s) => s.url.endsWith("/problems.html"))!;
+    const article = problems.result.items.find((it) => it.types.includes("Article"))!;
+    expect(article.issues.filter((x) => x.property === "datePublished")).toEqual([expect.objectContaining({ ruleId: "empty", severity: "warning" })]);
+    expect(article.eligibility).toBe("candidate");
   });
 
   it("gives every finding a fingerprint, page list and traceable occurrences", () => {

@@ -147,3 +147,13 @@ describe("BUG-12: one verdict per property", () => {
     expect(RULES_VERSION).toMatch(/^2026-11-04/);
   });
 });
+
+describe("BUG-12 regression guard: every verdict can become a finding", () => {
+  it("turns an empty-value verdict into a finding instead of crashing the audit", () => {
+    const r = validateStructuredData(capture({ jsonld: [ld({ "@context": "https://schema.org", "@type": "Article", headline: "A", author: "B", image: "https://e.com/i.jpg", datePublished: "" })] }));
+    const issues = structuredDataIssues(page({ url: "https://example.com/a/" }), r);
+    const empty = issues.find((i) => i.rule === "schema:empty")!;
+    expect(empty).toMatchObject({ kind: "recommendation", severity: "low" });
+    expect(empty.title).toMatch(/datePublished" is empty/);
+  });
+});
