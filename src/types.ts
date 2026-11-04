@@ -104,6 +104,8 @@ export interface Issue {
     screenshots: { viewport: number; path: string }[];
     /** Cropped screenshot with the issue's boxes drawn on it. */
     annotated?: string;
+    /** Screen width the annotated crop was taken from (BUG-19); absent on older crops (always the first width). */
+    annotatedViewport?: number;
     boxes: Box[];
     computedCss?: Record<string, unknown>;
     capturedAt: string;

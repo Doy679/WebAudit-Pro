@@ -265,3 +265,21 @@ describe("UX-02: one clear status vocabulary (display only)", async () => {
     expect(statusWords({ kind: "needs-review", verification_status: "false_positive", review_status: "pending", implementation_status: "todo", client_decision: null }).team).toBe("False positive (not a real problem)");
   });
 });
+
+describe("BUG-19 root cause: crop from a screen width where the element is actually displayed", async () => {
+  const { cropSource } = await import("../src/report/annotate");
+  it("skips widths where the element isn't laid out (the real CNT-0001: hidden on phones, 238×30 on tablet)", () => {
+    const issue = {
+      location: { url: "https://x.com/a/" },
+      evidence: { screenshots: [320, 390, 768].map((v) => ({ viewport: v, path: `s/${v}.png` })), boxes: [{ x: 0, y: 0, w: 0, h: 0 }] },
+      occurrences: [
+        { url: "https://x.com/a/", viewport: 320, screenshot: "s/320.png", boxes: [{ x: 0, y: 0, w: 0, h: 0 }] },
+        { url: "https://x.com/a/", viewport: 390, screenshot: "s/390.png", boxes: [{ x: 0, y: 0, w: 0, h: 0 }] },
+        { url: "https://x.com/a/", viewport: 768, screenshot: "s/768.png", boxes: [{ x: 444, y: 731, w: 238, h: 30 }] },
+      ],
+    };
+    expect(cropSource(issue as never)).toEqual({ viewport: 768, path: "s/768.png", boxes: [{ x: 444, y: 731, w: 238, h: 30 }] });
+    const nowhere = { ...issue, occurrences: issue.occurrences.slice(0, 2), evidence: { ...issue.evidence, screenshots: issue.evidence.screenshots.slice(0, 2) } };
+    expect(cropSource(nowhere as never)).toBeNull();
+  });
+});

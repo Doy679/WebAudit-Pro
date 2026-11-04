@@ -48,6 +48,22 @@ export function markerFor(b: { x: number; y: number; w: number; h: number }): { 
   return { x: Math.max(0, Math.round(b.x + b.w / 2 - size / 2)), y: Math.max(0, Math.round(b.y + b.h / 2 - size / 2)), w: size, h: size, tiny: true };
 }
 
+const positioned = (b: { x: number; y: number; w: number; h: number }) => !(b.w <= 0 && b.h <= 0 && b.x <= 0 && b.y <= 0);
+
+/**
+ * BUG-19 root cause: crops always used the first screen width (320px). An element hidden on phones (0×0 at 0,0)
+ * but shown on tablet produced a crop of the page top with a dot in the corner. Use the first width where the
+ * element is actually laid out; null if it never is.
+ */
+export function cropSource(issue: Pick<Issue, "location" | "evidence" | "occurrences">): { viewport: number; path: string; boxes: Issue["evidence"]["boxes"] } | null {
+  for (const shot of issue.evidence.screenshots) {
+    const occ = issue.occurrences?.find((o) => o.url === issue.location.url && o.viewport === shot.viewport);
+    const boxes = (occ?.boxes ?? (shot === issue.evidence.screenshots[0] ? issue.evidence.boxes : [])).filter(positioned);
+    if (boxes.length) return { viewport: shot.viewport, path: shot.path, boxes };
+  }
+  return null;
+}
+
 /** Writes annotated/<id>.png crops (first viewport) and sets evidence.annotated. */
 export async function annotate(runDir: string, issues: Issue[], browserChannel?: string): Promise<void> {
   const todo = issues.filter((i) => i.evidence.boxes.length && i.evidence.screenshots[0]?.path).slice(0, MAX_ANNOTATED);
@@ -59,9 +75,10 @@ export async function annotate(runDir: string, issues: Issue[], browserChannel?:
   try {
     const page = await browser.newPage();
     for (const issue of todo) {
-      const shot = issue.evidence.screenshots[0];
-      const boxes = issue.evidence.boxes.map(markerFor).filter((b): b is NonNullable<typeof b> => !!b);
-      if (!boxes.length) continue; // nothing visible to crop around; the viewer explains why
+      const src = cropSource(issue);
+      if (!src) continue; // never laid out at any width: nothing to crop around; the viewer explains why
+      const shot = { viewport: src.viewport, path: src.path };
+      const boxes = src.boxes.map(markerFor).filter((b): b is NonNullable<typeof b> => !!b);
       const data = { img: pathToFileURL(join(runDir, shot.path)).href, boxes };
       await page.setViewportSize({ width: Math.max(shot.viewport, 320), height: 900 });
       // A hash-only change would not reload the helper page, so start fresh for every issue.
@@ -77,6 +94,7 @@ export async function annotate(runDir: string, issues: Issue[], browserChannel?:
       const out = `annotated/${issue.id}.png`;
       await page.screenshot({ path: join(runDir, out), fullPage: true, clip: { x: 0, y, width: dims.w, height } });
       issue.evidence.annotated = out;
+      issue.evidence.annotatedViewport = src.viewport;
     }
   } finally {
     await browser.close();

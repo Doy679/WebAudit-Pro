@@ -13,12 +13,17 @@ export interface Shot {
  * Shows the saved full-page screenshot for the chosen viewport with the affected element(s) outlined,
  * scrolled to the first box. Boxes are page coordinates from the capture, so they line up exactly.
  */
-export function EvidenceViewer({ shots, annotated: storedCrop, pageUrl }: { shots: Shot[]; annotated?: string; pageUrl: string }) {
+export function EvidenceViewer({ shots, annotated: storedCrop, pageUrl, cropViewport }: { shots: Shot[]; annotated?: string; pageUrl: string; cropViewport?: number }) {
   // BUG-19: an element with no size and no position can't be outlined; crops stored before the fix show only a dot
   // in the corner, so they aren't offered. The full-page screenshot opens instead, with an explanation.
   const unpositioned = shots.some((s) => s.boxes.length > 0) && shots.every((s) => s.boxes.every((b) => b.w <= 0 && b.h <= 0 && b.x <= 0 && b.y <= 0));
-  const annotated = unpositioned ? undefined : storedCrop;
-  const [mode, setMode] = useState<"crop" | number>(annotated ? "crop" : shots[0]?.viewport ?? "crop");
+  // Older crops always used the first width; if the element isn't displayed there, that crop shows only a dot.
+  const isPlaced = (s: Shot) => s.boxes.some((b) => !(b.w <= 0 && b.h <= 0 && b.x <= 0 && b.y <= 0));
+  const hiddenAt = shots.filter((s) => s.boxes.length > 0 && !isPlaced(s)).map((s) => s.viewport);
+  const firstPlaced = shots.find(isPlaced);
+  const misleadingCrop = !cropViewport && shots[0] && !isPlaced(shots[0]) && !!firstPlaced;
+  const annotated = unpositioned || misleadingCrop ? undefined : storedCrop;
+  const [mode, setMode] = useState<"crop" | number>(annotated ? "crop" : firstPlaced?.viewport ?? shots[0]?.viewport ?? "crop");
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(false);
@@ -93,7 +98,10 @@ export function EvidenceViewer({ shots, annotated: storedCrop, pageUrl }: { shot
           </div>
         </div>
       )}
-      {mode === "crop" && annotated && <p className="mt-1 text-xs text-slate-500">Click the image to open it at full size.</p>}
+      {mode === "crop" && annotated && <p className="mt-1 text-xs text-slate-500">Click the image to open it at full size.{cropViewport ? ` Taken from the ${cropViewport}px screenshot.` : ""}</p>}
+      {!unpositioned && hiddenAt.length > 0 && (
+        <p className="mt-1 text-xs text-slate-600" data-testid="hidden-at-note">This element isn&apos;t displayed at {hiddenAt.join(", ")}px (no size or position there), so it&apos;s outlined on the wider screenshots only.</p>
+      )}
       {(unpositioned || (shot && shot.boxes.length > 0 && shot.boxes.every((b) => b.w <= 0 && b.h <= 0))) && (
         <p className="mt-1 text-xs text-slate-600" data-testid="no-size-note">This element has no visible size or position on the page (for example, an image that failed to load and isn&apos;t displayed), so it can&apos;t be outlined.</p>
       )}

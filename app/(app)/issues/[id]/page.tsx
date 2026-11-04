@@ -154,7 +154,7 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
             {shots.length > 0 && (
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-semibold text-navy-900">Screenshot of the current page</h3>
-                <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} />
+                <EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} cropViewport={(i.evidence as { annotatedViewport?: number }).annotatedViewport} />
               </div>
             )}
 

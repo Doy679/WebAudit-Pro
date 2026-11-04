@@ -119,7 +119,7 @@ function QueueItem({ q, hidden, href }: { q: NonNullable<ReturnType<typeof revie
             <div className="mt-1 break-words font-mono text-sm">{i.proposed_value ?? "Human review required"}</div>
           </div>
         </div>
-        {shots.length > 0 && <div className="mt-4"><EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} /></div>}
+        {shots.length > 0 && <div className="mt-4"><EvidenceViewer shots={shots} annotated={i.evidence.annotated ? evidenceUrl(i.run_id, i.evidence.annotated) : undefined} pageUrl={i.url} cropViewport={(i.evidence as { annotatedViewport?: number }).annotatedViewport} /></div>}
         <p className="mt-3 text-sm"><Link href={`/issues/${i.id}`} className="text-accent-600 underline">Open full details (technical evidence, history)</Link></p>
       </Card>
 
