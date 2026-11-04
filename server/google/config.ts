@@ -33,8 +33,8 @@ export function googleStatus() {
 }
 
 export function saveGoogleCredentials(input: { apiKey?: string; removeApiKey?: boolean; oauthClientId?: string; oauthClientSecret?: string; removeOauth?: boolean; cruxEnabled?: boolean }) {
-  if (input.removeApiKey) deleteSetting("google.apiKey");
-  else if (input.apiKey?.trim()) setSetting("google.apiKey", encryptSecret(input.apiKey.trim()));
+  if (input.removeApiKey) { deleteSetting("google.apiKey"); setSetting("google.apiKeySavedAt", new Date().toISOString()); }
+  else if (input.apiKey?.trim()) { setSetting("google.apiKey", encryptSecret(input.apiKey.trim())); setSetting("google.apiKeySavedAt", new Date().toISOString()); }
   if (input.removeOauth) {
     deleteSetting("google.oauthClientId");
     deleteSetting("google.oauthClientSecret");

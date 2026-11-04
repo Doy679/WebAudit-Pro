@@ -355,7 +355,7 @@ describe("WebAudit Pro end to end", () => {
     await snap("google-overview");
 
     await page.goto(`${APP}/google/connections?project=${projectId}`);
-    expect(await page.getByTestId("psi-status").innerText()).toMatch(/Not configured/);
+    expect(await page.getByTestId("psi-status").innerText()).toMatch(/PageSpeed not set up/);
     expect(await page.getByTestId("oauth-status").innerText()).toMatch(/Not configured/);
     await snap("google-connections");
 
@@ -366,7 +366,8 @@ describe("WebAudit Pro end to end", () => {
     await snap("google-structured-data");
 
     await page.goto(`${APP}/google/pagespeed?project=${projectId}`);
-    expect(await page.getByText("PageSpeed Insights is not configured").count()).toBe(1);
+    expect(await page.getByTestId("psi-health").getAttribute("data-state")).toBe("not-configured");
+    expect(await page.getByTestId("psi-health").innerText()).toContain("PageSpeed not set up");
     await page.goto(`${APP}/issues?run=${runId}&provider=schema`);
     expect(await page.getByText("Internal Schema Validator").count()).toBeGreaterThan(0);
     await page.goto(`${APP}/audits/new?project=${projectId}`);
@@ -539,7 +540,8 @@ describe("WebAudit Pro end to end", () => {
       expect(await page.getByTestId("getting-started").count()).toBe(0);
       expect(await page.getByTestId("dashboard-websites").innerText()).toContain("Fixture Mortgage");
       expect(await page.getByTestId("dashboard-worker").getAttribute("data-state")).toBe("online");
-      expect(await page.getByTestId("dashboard-google").innerText()).toContain("PageSpeed: not set up");
+      expect(await page.getByTestId("dashboard-psi").innerText()).toContain("PageSpeed not set up");
+      expect(await page.getByTestId("dashboard-gsc").innerText()).toContain("Search Console");
       await page.getByRole("link", { name: /High-priority findings/ }).click();
       await page.waitForURL(/quick=high/);
       // A new user (no websites yet) sees the guide with real progress, and hiding it is remembered.

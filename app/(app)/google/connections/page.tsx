@@ -1,12 +1,13 @@
 import { requireUser } from "@/app/lib/session";
 import { can } from "@/server/permissions";
 import { googleStatus } from "@/server/google/config";
-import { listConnections, listProperties, projectGoogle } from "@/server/google/service";
+import { cachedProperties, listConnections, projectGoogle } from "@/server/google/service";
+import { pageSpeedHealth } from "@/server/google/health-status";
 import { propertyMatchesDomain } from "@/server/google/gsc";
-import { bindPropertyAction, disconnectGoogleAction, saveGoogleCredentialsAction, setGoogleLimitsAction, testSearchConsoleAction } from "@/app/google-actions";
+import { bindPropertyAction, disconnectGoogleAction, saveGoogleCredentialsAction, setGoogleLimitsAction, testPageSpeedKeyAction, testSearchConsoleAction } from "@/app/google-actions";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { ActionForm, Submit } from "@/components/forms";
-import { GoogleTabs, GscStatusNotice } from "@/components/google";
+import { GoogleTabs, GscStatusNotice, PsiHealthNotice } from "@/components/google";
 import { btn, Card, fmtDate, hint, input, label, Notice, PageHeader } from "@/components/ui";
 import { selectProject } from "../shared";
 
@@ -22,18 +23,14 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
   const { projects, project } = selectProject(user, sp.project);
   const pg = project ? projectGoogle(user, project.id) : null;
 
-  // Properties are listed from Google for the user's own connection (cached; a failure is remembered for 2 minutes).
-  let properties: { siteUrl: string; permissionLevel: string }[] = [];
-  let listed = false;
-  if (connections[0] && project && can(user, "project:edit")) {
-    try {
-      properties = (await listProperties(user, connections[0].id)).filter((p) => propertyMatchesDomain(p.siteUrl, project.domain));
-      listed = true;
-    } catch {
-      // Recorded on the connection; shown through the shared status below.
-    }
-  }
+  // Opening this page never calls Google: properties come from the last Retry / Test (kept for an hour).
+  const cached = connections[0] && project && can(user, "project:edit") ? cachedProperties(user, connections[0].id) : null;
+  const listed = !!cached;
+  const properties = (cached ?? []).filter((p) => project && propertyMatchesDomain(p.siteUrl, project.domain));
   const gsc = searchConsoleStatus(user, project?.id);
+  const psiHealth = pageSpeedHealth(user);
+  // NEW-02: link to the API in the Google Cloud project named in Google's error.
+  const cloudProject = (gsc.detail.match(/project (\d+)/) ?? [])[1];
 
   return (
     <>
@@ -47,7 +44,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
         <Card title="Integration status">
           <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-slate-500">PageSpeed Insights API</dt>
-            <dd data-testid="psi-status">{status.apiKeyConfigured ? <>Configured ({status.apiKeySource}){status.lastApiCheck ? ` · last success ${fmtDate(status.lastApiCheck.slice(3))}` : " · not yet used"}</> : <span className="text-sev-med">Not configured: add an API key</span>}</dd>
+            <dd data-testid="psi-status" data-state={psiHealth.state} className={psiHealth.state === "failing" ? "font-medium text-sev-high" : undefined}>{status.apiKeyConfigured ? `Key saved (${status.apiKeySource}) · ` : ""}{psiHealth.label}</dd>
             <dt className="text-slate-500">Chrome UX Report API</dt>
             <dd>{status.cruxEnabled ? "Enabled (uses the same API key)" : "Off (optional extra history). Basic real-user data still comes from PageSpeed."}</dd>
             <dt className="text-slate-500">Search Console OAuth</dt>
@@ -101,7 +98,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                 {gsc.errorKind === "api-disabled" && admin && (
                   <p className="text-sm text-slate-700">
                     Fix: in Google Cloud Console open <em>APIs &amp; Services → Library</em>, find <strong>Google Search Console API</strong> and press <strong>Enable</strong>
-                    {" "}(<a className="text-accent-600 underline" href="https://console.cloud.google.com/apis/library/searchconsole.googleapis.com" target="_blank" rel="noopener noreferrer">open it</a>). Wait a few minutes, then press Retry.
+                    {" "}(<a className="text-accent-600 underline" href={`https://console.cloud.google.com/apis/library/searchconsole.googleapis.com${cloudProject ? `?project=${cloudProject}` : ""}`} target="_blank" rel="noopener noreferrer">open it{cloudProject ? ` in project ${cloudProject}` : ""}</a>). Wait a few minutes, then press Retry.
                   </p>
                 )}
                 <ActionForm action={testSearchConsoleAction} className="flex flex-wrap items-center gap-2">
@@ -111,6 +108,9 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                   <span className={hint}>Makes one read-only request to Google.</span>
                 </ActionForm>
               </div>
+            )}
+            {connections[0] && !listed && gsc.state !== "api-error" && (
+              <p className="mb-2 text-sm text-slate-600" data-testid="properties-not-loaded">Press <strong>Retry / Test connection</strong> to load your Search Console properties (one read-only request to Google).</p>
             )}
             {connections[0] ? (
               !listed ? null : properties.length ? (
@@ -135,6 +135,28 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
               <p className={`${hint} col-span-2`}>Google allows 2,000 URL inspections per property per day; WebAudit Pro also enforces that daily cap.</p>
               <div className="col-span-2"><Submit variant="secondary">Save limits</Submit></div>
             </ActionForm>
+          </Card>
+        )}
+
+        {admin && (
+          <Card title="PageSpeed Insights key (admin)">
+            <div className="space-y-3">
+              <PsiHealthNotice health={psiHealth} />
+              {status.apiKeyConfigured && project && (
+                <ActionForm action={testPageSpeedKeyAction} className="space-y-2">
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="confirm" required className="mt-1" />
+                    <span>I understand this sends <strong>one</strong> PageSpeed request to Google for {project.base_url} (uses API quota).</span>
+                  </label>
+                  <Submit variant="secondary">Test PageSpeed key</Submit>
+                </ActionForm>
+              )}
+              <p className={hint}>
+                If the key is rejected: Google Cloud Console → APIs &amp; Services → Credentials. Check the key exists, is restricted to the PageSpeed Insights API, and has no website (referrer)
+                restriction. Save a new key below if needed. The key is never shown again after saving.
+              </p>
+            </div>
           </Card>
         )}
 

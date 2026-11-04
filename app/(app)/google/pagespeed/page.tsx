@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
+import { pageSpeedHealth } from "@/server/google/health-status";
 import { can } from "@/server/permissions";
 import { googleStatus } from "@/server/google/config";
 import { projectGoogle, psiResults, latestPsiPerKey, googleTasks, type PsiRow } from "@/server/google/service";
@@ -8,7 +9,7 @@ import { listRuns, runPages } from "@/server/runs";
 import { queuePsiAction } from "@/app/google-actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { CwvBadge, Delta, GoogleTabs, ProjectPicker, Score, Source, Unavailable } from "@/components/google";
+import { CwvBadge, Delta, GoogleTabs, ProjectPicker, Score, Source, Unavailable, PsiHealthNotice } from "@/components/google";
 import { btn, Card, Empty, fmtDate, hint, input, label, Notice, PageHeader, shortUrl } from "@/components/ui";
 import { selectProject } from "../shared";
 import type { FieldData, LhAudit } from "@/server/google/types";
@@ -21,6 +22,7 @@ const FIELD: ["lcp" | "inp" | "cls" | "fcp" | "ttfb", string][] = [["lcp", "LCP"
 
 export default async function PageSpeedPage({ searchParams }: { searchParams: Promise<{ project?: string; id?: string }> }) {
   const user = await requireUser();
+  const psiHealth = pageSpeedHealth(user);
   const sp = await searchParams;
   const { projects, project } = selectProject(user, sp.project);
   if (!project) return (<><PageHeader title="PageSpeed Insights" /><Empty title="Add a website first" /></>);
@@ -43,7 +45,7 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
 
       {detail ? <PsiDetail row={detail} history={all.filter((r) => r.url === detail.url && r.strategy === detail.strategy)} project={project.id} /> : (
         <>
-          {!status.apiKeyConfigured && <div className="mb-4"><Notice tone="warn">PageSpeed Insights is not configured. An admin can add a Google API key in <Link className="underline" href="/google/connections">Google Connections</Link>. Without it, no PageSpeed data is shown.</Notice></div>}
+          {psiHealth.state !== "ok" && <div className="mb-4"><PsiHealthNotice health={psiHealth} /></div>}
           {can(user, "audit:start") && status.apiKeyConfigured && (
             <Card title="Analyse pages" className="mb-6">
               <ActionForm action={queuePsiAction} className="space-y-3">

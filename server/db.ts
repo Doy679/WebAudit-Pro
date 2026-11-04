@@ -173,6 +173,8 @@ function migrate(db: DB) {
   if (!gc.has("last_check_at")) db.exec("ALTER TABLE google_connections ADD COLUMN last_check_at TEXT");
   // Who cancelled an audit (BUG-21); older cancellations keep NULL.
   if (!cols("audit_runs").has("cancelled_by")) db.exec("ALTER TABLE audit_runs ADD COLUMN cancelled_by TEXT REFERENCES users(id)");
+  // NEW-01: Google's own error text for a failed PageSpeed request (key removed; admins only).
+  if (!cols("psi_results").has("error_detail")) db.exec("ALTER TABLE psi_results ADD COLUMN error_detail TEXT");
   if (!cols("jobs").has("attempts")) db.exec("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
 }
 

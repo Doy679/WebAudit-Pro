@@ -6,10 +6,54 @@ import { cruxCategory } from "./crux";
 export const PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed";
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 
-export class PsiQuotaError extends Error {}
-export class PsiConfigError extends Error {}
-export class PsiPageError extends Error {}
-export class PsiTransientError extends Error {}
+/** NEW-01: what went wrong with a PageSpeed request, in terms an admin can act on. */
+export type PsiErrorKind = "key-rejected" | "api-disabled" | "key-restricted" | "forbidden" | "quota" | "transient" | "network" | "page";
+/** Kinds that say something about the integration (key/API/quota/connectivity), not about one page. */
+export const INTEGRATION_KINDS: PsiErrorKind[] = ["key-rejected", "api-disabled", "key-restricted", "forbidden", "quota", "transient", "network"];
+
+class PsiError extends Error {
+  kind: PsiErrorKind = "transient";
+  /** Google's own text (key removed): admin-only "Technical details". */
+  technical?: string;
+}
+export class PsiQuotaError extends PsiError { override kind: PsiErrorKind = "quota"; }
+export class PsiConfigError extends PsiError { override kind: PsiErrorKind = "forbidden"; }
+export class PsiPageError extends PsiError { override kind: PsiErrorKind = "page"; }
+export class PsiTransientError extends PsiError {}
+
+/** Removes anything that looks like an API key from text that may be shown or stored. */
+export const redactKey = (s: string) => s.replace(/AIza[0-9A-Za-z_-]{10,}/g, "[key hidden]").replace(/([?&]key=)[^&\s]+/gi, "$1[key hidden]");
+
+export interface PsiErrorInfo { kind: PsiErrorKind; message: string; technical: string }
+
+export function classifyPsiError(status: number, body: Json): PsiErrorInfo {
+  const err = body?.error ?? {};
+  const raw = redactKey(typeof err.message === "string" ? err.message : `HTTP ${status}`);
+  const reasons: string[] = [...((err.details ?? []) as Json[]).map((d) => d?.reason), ...((err.errors ?? []) as Json[]).map((d) => d?.reason)].filter((r): r is string => typeof r === "string");
+  const technical = `HTTP ${status}${err.status ? ` ${err.status}` : ""}${reasons.length ? ` [${reasons.join(", ")}]` : ""}: ${raw}`;
+  const project = (raw.match(/project (\d+)/) ?? [])[1] ?? String(((err.details ?? []) as Json[]).find((d) => d?.metadata?.consumer)?.metadata?.consumer ?? "").replace(/^projects\//, "");
+  if (reasons.some((r) => r === "SERVICE_DISABLED" || r === "accessNotConfigured") || /has not been used in project|it is disabled/i.test(raw)) {
+    return { kind: "api-disabled", technical, message: `The PageSpeed Insights API is turned off in Google Cloud${project ? ` (project ${project})` : ""}. An admin needs to enable it, wait a few minutes, then test again.` };
+  }
+  if (reasons.some((r) => /^API_KEY_(INVALID|EXPIRED|NOT_FOUND)$/.test(r)) || (status === 400 && /api key/i.test(raw))) {
+    return { kind: "key-rejected", technical, message: "Google rejected the PageSpeed API key (it is invalid, expired or deleted). An admin needs to check or replace the key in Google Cloud, then save it in Google Connections." };
+  }
+  if (reasons.some((r) => /^API_KEY_(HTTP_REFERRER|IP_ADDRESS|ANDROID_APP|IOS_APP)_BLOCKED$|API_KEY_SERVICE_BLOCKED/.test(r)) || /referer|referrer|ip address .* blocked/i.test(raw)) {
+    return { kind: "key-restricted", technical, message: "The API key's restrictions block requests from this server (for example a website/referrer restriction). Use a key restricted to the PageSpeed Insights API without website restrictions, or an IP restriction for this server." };
+  }
+  if (status === 429) return { kind: "quota", technical, message: /per day/i.test(raw) ? "PageSpeed Insights daily quota reached. Try again tomorrow." : "PageSpeed Insights rate limit reached. Try again in a few minutes." };
+  if (status === 403) return { kind: "forbidden", technical, message: `PageSpeed Insights refused the request: ${raw}` };
+  if (status === 400 || status === 404) return { kind: "page", technical, message: `PageSpeed Insights could not analyse this URL: ${raw}` };
+  return { kind: "transient", technical, message: `PageSpeed Insights is temporarily unavailable (HTTP ${status}). Try again later.` };
+}
+
+function psiError(info: PsiErrorInfo): PsiError {
+  const Cls = info.kind === "quota" ? PsiQuotaError : info.kind === "page" ? PsiPageError : info.kind === "transient" || info.kind === "network" ? PsiTransientError : PsiConfigError;
+  const e = new Cls(info.message);
+  e.kind = info.kind;
+  e.technical = info.technical;
+  return e;
+}
 
 export const psiReportUrl = (url: string, strategy: Strategy) =>
   `https://pagespeed.web.dev/report?url=${encodeURIComponent(url)}&form_factor=${strategy}`;
@@ -131,22 +175,20 @@ export async function runPsi(url: string, strategy: Strategy, opts: PsiOptions):
     try {
       res = await fetchImpl(endpoint, { signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000) });
     } catch (e) {
-      if (attempt >= retries) throw new PsiTransientError(`PageSpeed Insights did not respond (${(e as Error).name === "TimeoutError" ? "timed out" : (e as Error).message}).`);
+      if (attempt >= retries) {
+        throw psiError({ kind: "network", message: "Couldn't reach PageSpeed Insights. Check this computer's internet connection and try again.",
+          technical: redactKey(`${(e as Error).name === "TimeoutError" ? "timed out" : (e as Error).message}`) });
+      }
       await sleep((opts.backoffMs ?? 2000) * 2 ** attempt);
       continue;
     }
     const body = (await res.json().catch(() => ({}))) as Json;
     if (res.ok) return parsePsi(body, strategy);
 
-    const message: string = body?.error?.message ?? `HTTP ${res.status}`;
-    if (res.status === 429 && /per day/i.test(message)) throw new PsiQuotaError(`PageSpeed Insights daily quota reached. ${message}`);
-    if (res.status === 400 && /api key/i.test(message)) throw new PsiConfigError("The PageSpeed Insights API key was rejected. Check it in Google Connections.");
-    if (res.status === 403) throw new PsiConfigError(`PageSpeed Insights refused the request: ${message}`);
-    if (res.status === 400 || res.status === 404) throw new PsiPageError(`PageSpeed Insights could not analyse this URL: ${message}`);
-    if (attempt >= retries) {
-      if (res.status === 429) throw new PsiQuotaError(`PageSpeed Insights rate limit reached. Try again later. ${message}`);
-      throw new PsiTransientError(`PageSpeed Insights failed (HTTP ${res.status}): ${message}`);
-    }
+    const info = classifyPsiError(res.status, body);
+    // Configuration and page problems fail fast; daily quota too. Rate limits and outages are retried.
+    if (info.kind !== "transient" && !(info.kind === "quota" && !/per day/i.test(info.technical))) throw psiError(info);
+    if (attempt >= retries) throw psiError(info);
     await sleep((opts.backoffMs ?? 2000) * 2 ** attempt);
   }
 }

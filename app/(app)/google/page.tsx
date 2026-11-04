@@ -3,11 +3,12 @@ import { requireUser } from "@/app/lib/session";
 import { googleStatus } from "@/server/google/config";
 import { googleTasks, projectGoogle } from "@/server/google/service";
 import { websiteHealth } from "@/server/health";
-import { GoogleTabs, ProjectPicker, GscStatusNotice } from "@/components/google";
+import { GoogleTabs, ProjectPicker, GscStatusNotice, PsiHealthNotice } from "@/components/google";
 import { WebsiteHealth } from "@/components/WebsiteHealth";
 import { Card, Empty, fmtDate, Notice, PageHeader, StatusPill } from "@/components/ui";
 import { selectProject } from "./shared";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
+import { pageSpeedHealth } from "@/server/google/health-status";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Google SEO & Performance" };
@@ -22,6 +23,7 @@ export default async function GoogleOverviewPage({ searchParams }: { searchParam
   const status = googleStatus();
   const pg = projectGoogle(user, project.id);
   const gsc = searchConsoleStatus(user, project.id);
+  const psiHealth = pageSpeedHealth(user);
   const health = websiteHealth(user, project.id);
   const tasks = googleTasks(user, project.id, 15);
 
@@ -31,11 +33,7 @@ export default async function GoogleOverviewPage({ searchParams }: { searchParam
       <GoogleTabs active="" project={project.id} />
       <ProjectPicker projects={projects} selected={project.id} />
 
-      {!status.apiKeyConfigured && (
-        <div className="mb-2"><Notice tone="warn">
-          PageSpeed isn&apos;t set up: an admin needs to add a Google API key in <Link className="underline" href={`/google/connections?project=${project.id}`}>Google Connections</Link>. Areas without data show “Not run” rather than estimates.
-        </Notice></div>
-      )}
+      {psiHealth.state !== "ok" && <div className="mb-2"><PsiHealthNotice health={psiHealth} /></div>}
       {gsc.state !== "ready" && <div className="mb-4"><GscStatusNotice status={gsc} /></div>}
 
       <WebsiteHealth {...health} />

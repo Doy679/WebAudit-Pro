@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { requireUser } from "@/app/lib/session";
 import { saveGoogleCredentials } from "@/server/google/config";
-import { bindProperty, disconnect, presetRange, queueGsc, queuePsi, setProjectLimits, testSearchConsole } from "@/server/google/service";
+import { bindProperty, disconnect, presetRange, queueGsc, queuePsi, setProjectLimits, testPageSpeedKey, testSearchConsole } from "@/server/google/service";
 import type { ActionState } from "@/app/actions";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
@@ -107,5 +107,15 @@ export async function testSearchConsoleAction(_: ActionState, fd: FormData): Pro
     revalidatePath("/", "layout");
     if (!r.ok) return { error: r.message };
     return { ok: `Search Console is working. ${r.properties} matching propert${r.properties === 1 ? "y" : "ies"} found${projectId ? " for this website" : ""}.` };
+  });
+}
+
+/** NEW-01: one live PageSpeed request, only after an admin ticks the confirmation. */
+export async function testPageSpeedKeyAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser("settings:manage");
+    const r = await testPageSpeedKey(user, str(fd, "projectId"), fd.get("confirm") === "on");
+    revalidatePath("/", "layout");
+    return r.ok ? { ok: "PageSpeed key works: Google answered the test request." } : { error: r.message };
   });
 }

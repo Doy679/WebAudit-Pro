@@ -5,6 +5,7 @@ import { googleStatus } from "@/server/google/config";
 import { projectGoogle } from "@/server/google/service";
 import { workerStatus } from "@/server/worker-status";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
+import { pageSpeedHealth } from "@/server/google/health-status";
 import { estimateAuditDuration } from "@/server/runs";
 import { startAuditAction } from "@/app/actions";
 import { NewAuditForm, type AuditProjectOption } from "@/components/NewAuditForm";
@@ -29,6 +30,7 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
   }
 
   const g = googleStatus();
+  const psiHealth = pageSpeedHealth(user);
   // Every project's saved defaults go to the form, so switching project updates all fields without a reload.
   const options: AuditProjectOption[] = projects.map((p) => {
     const s = p.settings;
@@ -41,7 +43,7 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
         categories: s.categories?.length ? s.categories : CATEGORIES.map((c) => c.value),
       },
       hasStandards: !!s.tokens,
-      google: { psiReady: g.apiKeyConfigured, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls, gscLabel: searchConsoleStatus(user, p.id).label },
+      google: { psiReady: g.apiKeyConfigured, psiWarning: psiHealth.state === "failing" ? psiHealth.label : null, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls, gscLabel: searchConsoleStatus(user, p.id).label },
     };
   });
   const initial = options.find((o) => o.id === requested) ?? options[0];

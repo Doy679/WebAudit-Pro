@@ -15,7 +15,7 @@ export interface AuditProjectOption {
   baseUrl: string;
   defaults: { maxPages: number; delayMs: number; viewports: number[]; categories: string[] };
   hasStandards: boolean;
-  google: { psiReady: boolean; psiMax: number; gscReady: boolean; property: string | null; inspectMax: number; gscLabel: string };
+  google: { psiReady: boolean; psiWarning: string | null; psiMax: number; gscReady: boolean; property: string | null; inspectMax: number; gscLabel: string };
 }
 
 export interface WorkerInfo { state: string; label: string; detail: string }
@@ -171,6 +171,9 @@ export function NewAuditForm({ projects, initialProjectId, worker, action, secon
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="psiDesktop" checked={f.psiDesktop} disabled={!project.google.psiReady} onChange={(e) => set("psiDesktop", e.target.checked)} /> PageSpeed Desktop</label>
           <label className="flex items-center gap-2 text-sm">PageSpeed pages: <input type="number" name="psiMaxUrls" min={1} max={project.google.psiMax} value={f.psiMaxUrls} onChange={(e) => set("psiMaxUrls", Number(e.target.value))} className={`${input} w-20 py-1`} /></label>
           <span className="text-xs text-slate-500">{project.google.psiReady ? "Start page first, then other scanned pages." : "Needs a Google API key (Google Connections)."}</span>
+          {project.google.psiWarning && (
+            <p className="text-xs font-medium text-sev-high sm:col-span-2" data-testid="psi-warning">{project.google.psiWarning}. PageSpeed checks will probably fail until an admin fixes the key; the audit itself is not affected.</p>
+          )}
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="gscPerformance" checked={f.gscPerformance} disabled={!project.google.gscReady} onChange={(e) => set("gscPerformance", e.target.checked)} /> Search Console data (last 28 days)</label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="gscSitemaps" checked={f.gscSitemaps} disabled={!project.google.gscReady} onChange={(e) => set("gscSitemaps", e.target.checked)} /> Search Console sitemaps</label>
           <label className="flex items-center gap-2 text-sm">URL inspections: <input type="number" name="inspectMaxUrls" min={0} max={project.google.inspectMax} value={f.inspectMaxUrls} disabled={!project.google.gscReady} onChange={(e) => set("inspectMaxUrls", Number(e.target.value))} className={`${input} w-20 py-1`} /></label>

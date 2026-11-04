@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { cx, input, label } from "./ui";
 import type { GscStatus } from "@/server/google/gsc-status";
+import type { PsiHealth } from "@/server/google/health-status";
 
 /** PageSpeed's own colour bands: 90–100 good, 50–89 needs improvement, 0–49 poor. */
 export function Score({ value, label: text }: { value: number | null | undefined; label?: string }) {
@@ -106,6 +107,24 @@ export function GscStatusNotice({ status, compact = false }: { status: GscStatus
         <details className="mt-1 text-xs text-slate-700">
           <summary className="cursor-pointer">Technical details (admins)</summary>
           <p className="mt-1 break-words font-mono">{status.technical}</p>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** NEW-01: the one PageSpeed health status, rendered the same way on every screen. Never shown as healthy after a failed live request. */
+export function PsiHealthNotice({ health, compact = false }: { health: PsiHealth; compact?: boolean }) {
+  const tone = health.state === "ok" ? "border-green-300 bg-ok-bg text-ok" : health.state === "failing" ? "border-red-300 bg-sev-high-bg text-sev-high" : "border-amber-300 bg-sev-med-bg text-sev-med";
+  return (
+    <div role="status" className={cx("rounded-md border px-3 py-2 text-sm", tone)} data-testid="psi-health" data-state={health.state}>
+      <strong>{health.label}.</strong>{" "}
+      {!compact && <span className="text-slate-800">{health.detail}</span>}
+      {health.action && <> <Link href={health.action.href} className="underline">{health.action.label}</Link></>}
+      {health.technical && (
+        <details className="mt-1 text-xs text-slate-700">
+          <summary className="cursor-pointer">Technical details (admins)</summary>
+          <p className="mt-1 break-words font-mono">{health.technical}</p>
         </details>
       )}
     </div>
