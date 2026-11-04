@@ -6,6 +6,7 @@ import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
 import { aiSettings } from "@/server/settings";
 import { explainIssue } from "@/server/explain";
+import { cwvDataScope } from "@/server/google/cwv-scope";
 import { FILTER_PARAMS } from "@/server/issue-filters";
 import { evidenceUrl } from "@/server/files";
 import { reviewAction, explainIssueAction } from "@/app/actions";
@@ -68,6 +69,7 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
     boxes: i.occurrences.filter((o) => o.url === i.url && o.viewport === s.viewport).flatMap((o) => o.boxes as Shot["boxes"]).slice(0, 20),
   }));
   const plain = explainIssue(i);
+  const scope = cwvDataScope(i.id); // BUG-05: page-level or whole-website real-user data
   // Only known filter parameters are carried back to the list.
   const back = new URLSearchParams([...new URLSearchParams(from ?? "")].filter(([k]) => FILTER_PARAMS.includes(k))).toString();
   const css = Object.entries(i.evidence.computedCss ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
@@ -86,6 +88,12 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
         <h2 id="plain-title" className="sr-only">Summary in plain language</h2>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
           <dt className="font-semibold text-navy-900">What&apos;s wrong</dt><dd className="text-slate-800">{plain.what}</dd>
+          {scope?.scope === "origin" && (
+            <>
+              <dt className="font-semibold text-navy-900">Data scope</dt>
+              <dd className="text-slate-800">Whole website (origin-level measurement), not this page alone.</dd>
+            </>
+          )}
           <dt className="font-semibold text-navy-900">Where</dt>
           <dd className="min-w-0 text-slate-800">
             <a href={i.url} target="_blank" rel="noopener noreferrer" className="break-all text-accent-600 underline">{i.url}</a>
@@ -173,6 +181,15 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
             <Card title="Source">
               <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm" data-testid="provider-info">
                 <dt className="text-slate-500">Provider</dt><dd>{PROVIDER_LABEL[i.provider] ?? i.provider}</dd>
+                {scope && (
+                  <>
+                    <dt className="text-slate-500">Data scope</dt>
+                    <dd data-testid="data-scope" data-scope={scope.scope}>
+                      <strong>{scope.label}</strong>
+                      {scope.scope === "origin" && <span className="block text-xs text-slate-600">Google had too few visits to report this page on its own, so this is the whole site&apos;s value{scope.samePages > 1 ? `; the same value is listed on ${scope.samePages} pages of this audit` : ""}. Fixing it is a site-wide task, not a fix for this page alone.</span>}
+                    </dd>
+                  </>
+                )}
                 {i.metric_key && <><dt className="text-slate-500">Original audit / metric</dt><dd className="font-mono text-xs">{i.metric_key}</dd></>}
                 {i.provider_ts && <><dt className="text-slate-500">Provider timestamp</dt><dd>{fmtDate(i.provider_ts)}</dd></>}
                 {i.source_ref && <><dt className="text-slate-500">Source</dt><dd className="break-all"><a href={i.source_ref} target="_blank" rel="noopener noreferrer" className="text-accent-600 underline">{i.source_ref}</a></dd></>}

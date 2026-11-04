@@ -154,3 +154,38 @@ describe("BUG-04: the 11:47 pattern (3 submissions in 12 s) queues each measurem
     expect(forced.queued).toHaveLength(2);
   });
 });
+
+describe("BUG-05: real-user data scope on findings, and a dry-run impact report", async () => {
+  const runsMod = await import("../server/runs");
+  const scopeMod = await import("../server/google/cwv-scope");
+  const field = (lcp: number) => ({ source: "psi-crux", scope: "url", metrics: { lcp: { p75: lcp, unit: "ms", category: "poor" } } });
+  const origin = { source: "psi-crux", scope: "origin", metrics: { lcp: { p75: 4060, unit: "ms", category: "poor" } } };
+  let runId = "";
+  beforeAll(() => {
+    runId = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/" } as never);
+    runsMod.finishRun(runId, "completed");
+    const pages = ["https://capitalhomemortgage.com/", "https://capitalhomemortgage.com/p2/", "https://capitalhomemortgage.com/p3/", "https://capitalhomemortgage.com/real/"];
+    pages.forEach((u, n) => {
+      const pageField = n < 3 ? field(4060) : field(2900); // three pages carry the site value; one has its own data
+      run(`INSERT INTO psi_results (id, project_id, run_id, url, strategy, status, fetched_at, result_json) VALUES (?, ?, ?, ?, 'mobile', 'ok', ?, ?)`,
+        newId(), projectId, runId, u, "2026-11-04T02:16:00.000Z", JSON.stringify({ scores: {}, lab: {}, field: pageField, originField: origin }));
+      run(`INSERT INTO issues (id, run_id, project_id, code, fingerprint, type, rule, kind, severity, confidence, title, url, pages_json, viewports_json, current_value, recommendation, evidence_json, occurrences_json, captured_at, updated_at, provider)
+           VALUES (?, ?, ?, ?, ?, 'cwv', 'crux:lcp', 'confirmed', 'high', 0.9, 'Poor real-user LCP on mobile', ?, ?, '[]', ?, 'x', ?, '[]', 't', 't', 'psi')`,
+        newId(), runId, projectId, `CWV-000${n + 1}`, `fp${n}`, u, JSON.stringify([u]), n < 3 ? "4.1 s p75 (poor, LCP)" : "2.9 s p75 (poor, LCP)",
+        JSON.stringify({ screenshots: [], boxes: [], computedCss: { provider: "psi", metricKey: "crux:lcp", strategy: "mobile" } }));
+    });
+  });
+
+  it("labels each finding's data scope from the stored PageSpeed result", () => {
+    const ids = all<{ id: string; code: string }>("SELECT id, code FROM issues WHERE run_id = ? ORDER BY code", runId);
+    expect(scopeMod.cwvDataScope(ids[0].id)).toMatchObject({ scope: "origin", label: "Whole website (origin-level measurement)", samePages: 3 });
+    expect(scopeMod.cwvDataScope(ids[3].id)).toMatchObject({ scope: "url", label: "This page (URL-level measurement)" });
+  });
+
+  it("dry-run: what consolidating whole-site findings would change, without changing anything", () => {
+    const before = all("SELECT id, severity FROM issues WHERE run_id = ?", runId);
+    const impact = scopeMod.originCwvImpact(runId);
+    expect(impact).toMatchObject({ duplicateFindings: 2, groups: [{ metric: "lcp", strategy: "mobile", findings: 3, pages: 3 }], highNow: 4, highAfter: 2 });
+    expect(all("SELECT id, severity FROM issues WHERE run_id = ?", runId)).toEqual(before);
+  });
+});
