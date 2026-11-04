@@ -1,6 +1,6 @@
 import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
-import { filterOptions, listIssues, quickFilterCounts } from "@/server/issues";
+import { filterOptions, issueReference, listIssues, quickFilterCounts } from "@/server/issues";
 import { parseIssueSearchParams, QUICK_FILTERS } from "@/server/issue-filters";
 import { listViews } from "@/server/saved-views";
 import { explainIssue } from "@/server/explain";
@@ -191,7 +191,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                   <tr key={i.id} className={cx("hover:bg-slate-50", i.verification_status === "false_positive" && "opacity-60")}>
                     {reviewer && <td className="px-3 py-2"><input type="checkbox" name="ids" value={i.id} aria-label={`Select ${i.code}`} /></td>}
                     <td className="whitespace-nowrap px-3 py-2 font-mono text-xs"><Link href={detail(i.id)} className="text-accent-600 hover:underline" aria-label={mixed ? `${i.code} (${i.project_name})` : undefined}>{i.code}</Link>
-                      {mixed && <div className="max-w-[9rem] truncate font-sans text-[11px] text-slate-600" data-testid="row-website">{i.project_name}</div>}</td>
+                      {mixed && <div className="max-w-[9rem] truncate font-sans text-[11px] text-slate-600" data-testid="row-website" title={issueReference(i.project_name, i.code)}>{i.project_name} · {issueReference(i.project_name, i.code)}</div>}</td>
                     <td className="max-w-xs px-3 py-2">
                       <Link href={detail(i.id)} className="font-medium text-navy-900 hover:underline">{i.title}</Link>
                       {(() => {

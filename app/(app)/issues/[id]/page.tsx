@@ -1,7 +1,7 @@
 import Link from "@/components/AppLink";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
-import { getIssue, reviewActionsFor } from "@/server/issues";
+import { getIssue, issueReference, reviewActionsFor } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
 import { aiSettings } from "@/server/settings";
@@ -81,7 +81,7 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
       </div>
       <PageHeader
         title={`${i.code}: ${i.title}`}
-        subtitle={<>{i.project_name} · {TYPE_LABEL[i.type] ?? i.type} · found {fmtDate(i.captured_at)}</>}
+        subtitle={<>{i.project_name} · reference <strong data-testid="issue-reference">{issueReference(i.project_name, i.code)}</strong> · {TYPE_LABEL[i.type] ?? i.type} · found {fmtDate(i.captured_at)}</>}
       />
 
       <section aria-labelledby="plain-title" className="mb-6 rounded-lg border border-slate-200 bg-white p-4" data-testid="plain-summary">

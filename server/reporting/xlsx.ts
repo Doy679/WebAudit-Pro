@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { issueReference } from "../issues";
 import type { ReportData, ReportIssue } from "./data";
 import { label, statusText } from "./data";
 import { addGoogleSheets } from "./xlsx-google";
@@ -27,6 +28,7 @@ const ISSUE_COLS: Col[] = [
   { header: "Assignee", key: "assignee", width: 16 },
   { header: "Notes", key: "notes", width: 40 },
   { header: "Source", key: "source", width: 24 },
+  { header: "Reference (website + ID)", key: "reference", width: 18 },
 ];
 
 const PROVIDER: Record<string, string> = {
@@ -53,6 +55,7 @@ function issueRow(i: ReportIssue, d: ReportData) {
     assignee: i.assignee_name ?? "",
     notes: i.notes,
     source: [PROVIDER[i.provider] ?? i.provider, i.metric_key, i.provider_ts && i.provider !== "webaudit" ? `as of ${i.provider_ts}` : ""].filter(Boolean).join(" · "),
+    reference: issueReference(d.project.name, i.code),
   };
 }
 

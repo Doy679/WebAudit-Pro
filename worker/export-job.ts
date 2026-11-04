@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { issueReference } from "../server/issues";
 import { join, resolve, sep } from "node:path";
 import { exportsDir } from "../server/db";
 import { exportById, markExport } from "../server/exports";
@@ -61,7 +62,7 @@ export async function processExport(exportId: string, log: (m: string) => void):
         generatedAt: d.generatedAt, generatedBy: d.generatedBy, filters: d.filters, project: d.project,
         run: { id: d.run.id, startUrl: d.run.start_url, createdAt: d.run.created_at, finishedAt: d.run.finished_at, settings: d.run.settings, summary: d.run.summary },
         pages: d.pages, score: d.score, google: d.google,
-        issues: d.issues.map(({ evidence, ...i }) => ({ ...i, evidence: { ...evidence, viewUrl: `${d.appUrl}/issues/${i.id}` } })),
+        issues: d.issues.map(({ evidence, ...i }) => ({ ...i, reference: issueReference(d.project.name, i.code), evidence: { ...evidence, viewUrl: `${d.appUrl}/issues/${i.id}` } })),
       }, null, 2);
     } else {
       const imgs = await evidenceImages(d.run.run_dir, featured(d).items.map((i) => i.evidence.annotated).filter((p): p is string => !!p));

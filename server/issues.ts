@@ -347,3 +347,14 @@ export function quickFilterCounts(user: User, f: IssueFilters): Record<string, n
     `SELECT COUNT(*) AS "all", ${keys.map((k) => `COALESCE(SUM(CASE WHEN ${QUICK_SQL[k]} THEN 1 ELSE 0 END), 0) AS "${k}"`).join(", ")} FROM issues i WHERE ${whereSql}`, ...params)!;
   return { ...row };
 }
+
+/**
+ * BUG-11: display IDs restart per website (CNT-0001 exists for every site), so anything quoted on its own gets a
+ * website prefix: "Capital Home Mortgage" → CHM, "RedRiverModularHomes" → RRMH. Stored IDs and links don't change.
+ */
+export function projectCode(name: string): string {
+  const words = name.replace(/([a-z])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const code = words.length > 1 ? words.map((w) => w[0]).join("") : (words[0] ?? "").slice(0, 4);
+  return (code || "WEB").toUpperCase().slice(0, 6);
+}
+export const issueReference = (projectName: string, code: string) => `${projectCode(projectName)}-${code}`;

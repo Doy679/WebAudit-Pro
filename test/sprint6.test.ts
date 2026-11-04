@@ -189,3 +189,15 @@ describe("BUG-05: real-user data scope on findings, and a dry-run impact report"
     expect(all("SELECT id, severity FROM issues WHERE run_id = ?", runId)).toEqual(before);
   });
 });
+
+describe("BUG-11: project-aware references for quoted IDs", async () => {
+  const { projectCode, issueReference } = await import("../server/issues");
+  it("derives a short website code and a reference without touching stored IDs", () => {
+    expect(projectCode("Capital Home Mortgage")).toBe("CHM");
+    expect(projectCode("RedRiverModularHomes")).toBe("RRMH");
+    expect(projectCode("acme")).toBe("ACME");
+    expect(projectCode("A")).toBe("A");
+    expect(issueReference("Capital Home Mortgage", "CNT-0001")).toBe("CHM-CNT-0001");
+    expect(issueReference("RedRiverModularHomes", "CNT-0001")).toBe("RRMH-CNT-0001");
+  });
+});
