@@ -162,7 +162,7 @@ function outsiderInProject() {
 describe("BUG-04: PageSpeed requests are idempotent and cache reuse doesn't inflate history", () => {
   it("a second submit while the same URL + device is still queued creates no new request", () => {
     config.saveGoogleCredentials({ apiKey: "AIzaTESTKEY" });
-    const urls = ["https://capitalhomemortgage.com/", "https://capitalhomemortgage.com/clarksville/"];
+    const urls = ["https://capitalhomemortgage.com/q1/", "https://capitalhomemortgage.com/q2/"];
     const first = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
     expect(first.queued).toHaveLength(4);
     const again = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
@@ -178,8 +178,8 @@ describe("BUG-04: PageSpeed requests are idempotent and cache reuse doesn't infl
     const u = "https://capitalhomemortgage.com/reuse/";
     psi(u, "mobile", new Date().toISOString(), 70);
     const before = all<{ id: string }>("SELECT id FROM psi_results WHERE url = ?", u).length;
-    const { queued } = g.queuePsi(admin, projectId, { urls: [u], strategies: ["mobile"] });
-    expect(await g.processGoogleTask(queued[0])).toBe("completed");
+    // Sprint 6: a result inside the cache window isn't queued again at all (no request row, no history row).
+    expect(g.queuePsi(admin, projectId, { urls: [u], strategies: ["mobile"] })).toMatchObject({ queued: [], recentlyMeasured: 1 });
     expect(all("SELECT id FROM psi_results WHERE url = ?", u)).toHaveLength(before);
   });
 });

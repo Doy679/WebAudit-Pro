@@ -79,7 +79,9 @@ describe("NEW-01: one PageSpeed health state, from fresh results only", () => {
     // Later the key is rejected for a new URL, while the cached URL still "completes" from cache.
     respond = () => json(google(400, "API key not valid. Please pass a valid API key.", "API_KEY_INVALID"), 400);
     expect(await runTask("https://capitalhomemortgage.com/gbg-team/")).toBe("failed");
-    expect(await runTask()).toBe("completed"); // cache hit, no Google call
+    const callsBefore = calls.length;
+    expect(g.queuePsi(admin, projectId, { urls: [page], strategies: ["mobile"] })).toMatchObject({ queued: [], recentlyMeasured: 1 }); // served from the cache window
+    expect(calls.length).toBe(callsBefore); // no Google call
     const h = pageSpeedHealth(admin);
     expect(h.state).toBe("failing");
     expect(h.failureKind).toBe("key-rejected");
@@ -130,3 +132,25 @@ describe("NEW-01: Test PageSpeed key needs an admin and a deliberate confirmatio
 
 // Keep references used by later sprint additions.
 void all; void get;
+
+describe("BUG-04: the 11:47 pattern (3 submissions in 12 s) queues each measurement once", () => {
+  it("skips URL+devices still queued or measured within the cache window; skip-cache still runs once", async () => {
+    run("UPDATE google_tasks SET status = 'completed' WHERE status IN ('pending', 'running')");
+    respond = () => json(psiSample());
+    const urls = ["https://capitalhomemortgage.com/b4-a/", "https://capitalhomemortgage.com/b4-b/"];
+    const first = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
+    expect(first.queued).toHaveLength(4);
+    for (const id of first.queued.slice(0, 2)) await g.processGoogleTask(id); // b4-a done, b4-b still queued
+
+    const second = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
+    expect(second).toMatchObject({ queued: [], alreadyQueued: 2, recentlyMeasured: 2 });
+    const third = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"] });
+    expect(third.queued).toHaveLength(0);
+    expect(get<{ n: number }>("SELECT COUNT(*) AS n FROM google_tasks WHERE json_extract(payload_json, '$.url') LIKE '%/b4-%'")!.n).toBe(4);
+
+    // Explicit "skip the cache" re-measures a finished URL once, but never duplicates one still queued.
+    const forced = g.queuePsi(admin, projectId, { urls, strategies: ["mobile", "desktop"], force: true });
+    expect(forced).toMatchObject({ alreadyQueued: 2, recentlyMeasured: 0 });
+    expect(forced.queued).toHaveLength(2);
+  });
+});

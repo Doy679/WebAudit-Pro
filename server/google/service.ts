@@ -210,7 +210,7 @@ function checkRun(projectId: string, runId?: string) {
  * Queues PageSpeed requests. A URL + device that is already queued or running is not queued again, whatever
  * the "skip cache" option (BUG-04: one form was submitted 12 times in 49 s).
  */
-export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean }): { queued: string[]; alreadyQueued: number } {
+export function queuePsi(user: User, projectId: string, p: { urls: string[]; strategies: Strategy[]; runId?: string; force?: boolean }): { queued: string[]; alreadyQueued: number; recentlyMeasured: number } {
   assertCan(user, "audit:start");
   const project = getProject(user, projectId);
   if (!googleConfig().apiKey) throw new Error("PageSpeed Insights needs a Google API key. An admin can add it in Google Connections.");
@@ -227,13 +227,20 @@ export function queuePsi(user: User, projectId: string, p: { urls: string[]; str
     const inFlight = new Set(all<{ k: string }>(
       `SELECT json_extract(payload_json, '$.url') || '|' || json_extract(payload_json, '$.strategy') AS k FROM google_tasks
        WHERE project_id = ? AND type = 'psi' AND status IN ('pending', 'running')`, projectId).map((r) => r.k));
+    // BUG-04: a fresh Google result inside the cache window would only be reused, so queueing it again just adds a
+    // duplicate request row. Skip it unless the user explicitly asked to skip the cache. (An audit link still gets
+    // its copy because audits queue with force.)
+    const since = new Date(Date.now() - PSI_CACHE_MS).toISOString();
+    const fresh = p.force ? new Set<string>() : new Set(all<{ k: string }>(
+      "SELECT url || '|' || strategy AS k FROM psi_results WHERE project_id = ? AND status = 'ok' AND fetched_at > ?", projectId, since).map((r) => r.k));
     const queued: string[] = [];
-    let alreadyQueued = 0;
+    let alreadyQueued = 0, recentlyMeasured = 0;
     for (const url of urls) for (const strategy of strategies) {
       if (inFlight.has(`${url}|${strategy}`)) { alreadyQueued++; continue; }
+      if (fresh.has(`${url}|${strategy}`)) { recentlyMeasured++; continue; }
       queued.push(queue(user, "psi", projectId, p.runId, { url, strategy, force: !!p.force }));
     }
-    return { queued, alreadyQueued };
+    return { queued, alreadyQueued, recentlyMeasured };
   });
 }
 
