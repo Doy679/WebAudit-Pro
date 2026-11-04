@@ -36,10 +36,10 @@ export interface ActivityItem { at: string; label: string; href: string; kind: "
 
 export function recentActivity(user: User, limit = 12): ActivityItem[] {
   const r = projectScope(user, "ar.project_id");
-  const audits = all<{ id: string; status: string; created_at: string; finished_at: string | null; name: string }>(
-    `SELECT ar.id, ar.status, ar.created_at, ar.finished_at, p.name FROM audit_runs ar JOIN projects p ON p.id = ar.project_id
+  const audits = all<{ id: string; status: string; created_at: string; started_at: string | null; finished_at: string | null; name: string }>(
+    `SELECT ar.id, ar.status, ar.created_at, ar.started_at, ar.finished_at, p.name FROM audit_runs ar JOIN projects p ON p.id = ar.project_id
      WHERE ${r.sql} ORDER BY ar.created_at DESC LIMIT ?`, ...r.params, limit,
-  ).map((a) => ({ at: a.finished_at ?? a.created_at, label: `Audit of ${a.name}: ${a.status}`, href: `/audits/${a.id}`, kind: "audit" as const }));
+  ).map((a) => ({ at: a.finished_at ?? a.created_at, label: `Audit of ${a.name}: ${a.status === "cancelled" ? (a.started_at ? "cancelled while running" : "cancelled before it started") : a.status}`, href: `/audits/${a.id}`, kind: "audit" as const }));
 
   const i = projectScope(user, "i.project_id");
   const events = all<{ issue_id: string; code: string; action: string; actor_label: string; created_at: string }>(

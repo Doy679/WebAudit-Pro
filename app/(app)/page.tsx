@@ -98,7 +98,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
                           <StatusPill status={w.active.status} /> {w.active.status === "pending" ? "Waiting to start" : `${w.active.pages_done}/${w.active.pages_total || "?"} pages`}
                         </Link>
                       ) : w.lastRunId ? (
-                        <>Last audit {fmtDate(w.lastAuditAt)} · {w.findings} findings{w.high ? <>, <span className="font-semibold text-sev-high">{w.high} high priority</span></> : null}</>
+                        <>Last audit finished {fmtDate(w.lastAuditAt)} · {w.findings} findings{w.high ? <>, <span className="font-semibold text-sev-high">{w.high} high priority</span></> : null}</>
                       ) : "Not audited yet"}
                     </div>
                   </div>

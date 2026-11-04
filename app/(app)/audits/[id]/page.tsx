@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
-import { getRun, listRuns, queuePosition, runPages } from "@/server/runs";
+import { cancellationNote, getRun, listRuns, queuePosition, runPages } from "@/server/runs";
 import { workerStatus } from "@/server/worker-status";
 import { getProject } from "@/server/projects";
 import { runScoreInputs } from "@/server/issues";
@@ -64,7 +64,7 @@ export default async function AuditPage({ params }: { params: Promise<{ id: stri
       <RunProgress
         runId={id}
         initial={{
-          status: r.status, phase: r.phase, error: r.error, cancelRequested: !!r.cancel_requested,
+          status: r.status, phase: r.phase, error: cancellationNote(r) ?? r.error, cancelRequested: !!r.cancel_requested,
           pagesTotal: r.pages_total, pagesDone: r.pages_done, pagesFailed: r.pages_failed, pagesSkipped: r.pages_skipped,
           currentUrl: r.current_url, currentViewport: r.current_viewport, findingsRaw: r.findings_raw, findings: r.findings,
           createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, heartbeatAt: r.heartbeat_at,

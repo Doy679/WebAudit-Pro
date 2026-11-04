@@ -28,7 +28,7 @@ export default async function ProjectsPage() {
                 <div><dt className="text-slate-500">Open findings</dt><dd className="tabular font-semibold">{p.open_findings}</dd></div>
                 <div><dt className="text-slate-500">Last audit</dt><dd>{p.last_status ? <StatusPill status={p.last_status} /> : "–"}</dd></div>
               </dl>
-              {p.last_run_at && <div className="mt-2 text-xs text-slate-500">Last run {fmtDate(p.last_run_at)}</div>}
+              {p.last_run_at && <div className="mt-2 text-xs text-slate-500">Last audit queued {fmtDate(p.last_run_at)}</div>}
             </Link>
           ))}
         </div>

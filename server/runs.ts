@@ -47,6 +47,8 @@ export interface AuditRun {
   current_viewport: number | null;
   run_dir: string | null;
   summary: Record<string, unknown> | null;
+  cancelled_by?: string | null;
+  cancelled_by_name?: string | null;
 }
 
 type RunRow = Omit<AuditRun, "settings" | "summary"> & { settings_json: string; summary_json: string | null };
@@ -117,7 +119,7 @@ export function queuePosition(runId: string): number {
 }
 
 export function getRun(user: User, id: string): AuditRun {
-  const row = get<RunRow>("SELECT * FROM audit_runs WHERE id = ?", id);
+  const row = get<RunRow>("SELECT r.*, p.name AS project_name, u.name AS cancelled_by_name FROM audit_runs r JOIN projects p ON p.id = r.project_id LEFT JOIN users u ON u.id = r.cancelled_by WHERE r.id = ?", id);
   if (!row) throw new NotFoundError("Audit run not found.");
   assertProjectAccess(user, row.project_id);
   return toRun(row);
@@ -130,7 +132,8 @@ export function listRuns(user: User, opts: { projectId?: string; status?: string
   if (opts.projectId) { where.push("r.project_id = ?"); params.push(opts.projectId); }
   if (opts.status) { where.push("r.status = ?"); params.push(opts.status); }
   return all<RunRow & { project_name: string }>(
-    `SELECT r.*, p.name AS project_name FROM audit_runs r JOIN projects p ON p.id = r.project_id
+    `SELECT r.*, p.name AS project_name, u.name AS cancelled_by_name FROM audit_runs r JOIN projects p ON p.id = r.project_id
+     LEFT JOIN users u ON u.id = r.cancelled_by
      WHERE ${where.join(" AND ")} ORDER BY r.created_at DESC LIMIT ?`, ...params, opts.limit ?? 100,
   ).map(toRun);
 }
@@ -140,11 +143,11 @@ export function requestCancel(user: User, runId: string) {
   const r = getRun(user, runId);
   if (r.status === "pending") {
     tx(() => {
-      run("UPDATE audit_runs SET status = 'cancelled', cancel_requested = 1, finished_at = ?, phase = 'cancelled' WHERE id = ?", now(), runId);
+      run("UPDATE audit_runs SET status = 'cancelled', cancel_requested = 1, cancelled_by = ?, finished_at = ?, phase = 'cancelled' WHERE id = ?", user.id, now(), runId);
       run("UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE ref_id = ? AND status = 'pending'", now(), runId);
     });
   } else if (r.status === "running") {
-    run("UPDATE audit_runs SET cancel_requested = 1 WHERE id = ?", runId);
+    run("UPDATE audit_runs SET cancel_requested = 1, cancelled_by = ? WHERE id = ?", user.id, runId);
   }
 }
 
@@ -286,4 +289,18 @@ export function estimateAuditDuration(pages: number, viewports: number): { label
   const total = pages * viewports * rate;
   const low = mins(total * 0.85), high = mins(total * 1.15);
   return { label: `about ${low === high ? low : `${low}–${high}`} min`, secondsPerPageView: Math.round(rate * 10) / 10, basis };
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+const span = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.floor(ms / 60_000)} m ${Math.round((ms % 60_000) / 1000)} s`);
+
+/** BUG-21: one plain sentence explaining a cancelled audit: who, when, and what was (not) kept. */
+export function cancellationNote(r: Pick<AuditRun, "status" | "started_at" | "finished_at" | "findings_raw" | "pages_done" | "cancelled_by_name">): string | null {
+  if (r.status !== "cancelled") return null;
+  const who = r.cancelled_by_name ? `by ${r.cancelled_by_name} ` : "";
+  const when = r.finished_at ? `on ${clock(r.finished_at)}` : "";
+  if (!r.started_at) return `Cancelled ${who}${when} while waiting in the queue; it never started.`;
+  const ran = r.finished_at ? ` after ${span(Date.parse(r.finished_at) - Date.parse(r.started_at))}` : "";
+  const kept = r.findings_raw ? ` ${r.findings_raw} raw findings collected so far were not imported.` : " No findings were imported.";
+  return `Cancelled ${who}${when}${ran}.${kept}`;
 }

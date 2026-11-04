@@ -395,3 +395,17 @@ describe("BUG-24 / UX-17: audit duration estimate from real history", async () =
     expect(e.label).toMatch(/^about 1[3-7]–1[6-9] min/);
   });
 });
+
+describe("BUG-20 / BUG-21: cancelled audits explain themselves", async () => {
+  const runsMod = await import("../server/runs");
+  it("records who cancelled a queued audit and explains each cancelled state", () => {
+    const id = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/" } as never);
+    runsMod.requestCancel(admin, id);
+    const r = runsMod.getRun(admin, id);
+    expect(r.cancelled_by_name).toBe("Admin");
+    expect(runsMod.cancellationNote(r)).toMatch(/^Cancelled by Admin .* while waiting in the queue; it never started\.$/);
+    // Historic record like 56531528: started, 109 raw findings collected, none imported, no canceller stored.
+    const note = runsMod.cancellationNote({ ...r, cancelled_by_name: null, started_at: "2026-11-03T07:39:34.456Z", finished_at: "2026-11-03T07:39:56.100Z", findings_raw: 109, pages_done: 0 });
+    expect(note).toMatch(/^Cancelled .* after 22 s\. 109 raw findings collected so far were not imported\.$/);
+  });
+});
