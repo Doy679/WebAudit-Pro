@@ -6,6 +6,7 @@ import { can } from "@/server/permissions";
 import { createExportAction } from "@/app/actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { GenerateGuard, OptionsForm, ReportBuilder } from "@/components/ReportBuilder";
 import { btn, Card, cx, Empty, fmtDate, hint, input, label, PageHeader, StatusPill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +58,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <Empty title="No completed audits yet">Reports are made from a finished audit. <Link href="/audits/new" className="text-accent-600 underline">Start an audit</Link></Empty>
       ) : can(user, "export:create") ? (
         <Card title="Create a report" className="mb-6">
-          <form method="get" className="space-y-5" aria-label="Report options">
+          <ReportBuilder>
+          <OptionsForm className="space-y-5">
             {ids.map((id) => <input key={id} type="hidden" name="ids" value={id} />)}
             <div>
               <StepTitle n={1}>Choose the audit</StepTitle>
@@ -99,8 +101,9 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <span>Only internally reviewed findings (confirmed or approved)<span className={hint + " block"}>Recommended before sharing with a client. False positives are always left out.</span></span>
               </label>
               <button className={cx(btn.secondary, "mt-3")}>Update preview</button>
+              <span className={hint + " ml-2"}>The preview also updates by itself when you change an option.</span>
             </div>
-          </form>
+          </OptionsForm>
 
           {preview && (
             <div className="mt-5" data-testid="report-preview">
@@ -121,6 +124,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             {filters.type && <input type="hidden" name="type" value={filters.type} />}
             {filters.reviewedOnly && <input type="hidden" name="reviewedOnly" value="on" />}
             {ids.map((id) => <input key={id} type="hidden" name="ids" value={id} />)}
+            <GenerateGuard>
             <ul className="grid gap-3 md:grid-cols-2">
               {TYPES.map((t) => (
                 <li key={t.format} className="flex flex-col justify-between gap-3 rounded-md border border-slate-200 p-3">
@@ -136,9 +140,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 </li>
               ))}
             </ul>
+            </GenerateGuard>
             {!preview?.total && <p className="mt-2 text-sm font-medium text-sev-med" data-testid="empty-report-note">Generate is turned off because the report would be empty. Change the options in step 2.</p>}
             <p className={hint + " mt-2"}>Reports take a few seconds. When ready they appear under &quot;Your reports&quot; with a download link.</p>
           </ActionForm>
+          </ReportBuilder>
         </Card>
       ) : null}
 

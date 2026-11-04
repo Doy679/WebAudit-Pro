@@ -648,6 +648,20 @@ describe("WebAudit Pro end to end", () => {
       expect(json.issues).toHaveLength(2);
     });
 
+    it("BUG-15 / UX-06: changing a report option disables Generate until the preview has refreshed by itself", async () => {
+      await page.goto(`${APP}/reports?run=${runId}`);
+      const before = await page.getByTestId("report-preview").innerText();
+      await page.getByLabel("Severity").selectOption("low");
+      expect(await page.getByTestId("generate-guard").getAttribute("data-stale")).toBe("1"); // stale: buttons disabled at once
+      expect(await page.getByRole("button", { name: "Generate PDF" }).isDisabled()).toBe(true);
+      await page.waitForURL(/severity=low/); // no "Update preview" click
+      await page.locator("[data-testid=generate-guard][data-stale='0']").waitFor();
+      const after = await page.getByTestId("report-preview").innerText();
+      expect(after).not.toBe(before);
+      const total = Number((after.match(/include (\d+) finding/) ?? [0, 0])[1]);
+      expect(await page.getByRole("button", { name: "Generate PDF" }).isDisabled()).toBe(total === 0);
+    });
+
     it("UX 4: Help explains the workflow and terms; New Audit keeps advanced settings out of the way", async () => {
       await page.goto(`${APP}/help`);
       expect(await page.getByRole("heading", { name: "Help & getting started" }).count()).toBe(1);
