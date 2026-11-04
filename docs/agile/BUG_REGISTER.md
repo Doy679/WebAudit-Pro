@@ -25,3 +25,37 @@ Status: Fixed & verified · Open · Won't fix. "Fixed & verified" means a regres
 | BUG-018 | Issue detail 594 px wide on a 390 px phone (real Red River data) | Issues | P1 | S3 | Page grids had no column template below `xl`, so the implicit column grew to the longest unwrapped URL in "Affected pages"; fixture data has short URLs, so automated tests missed it | `grid-cols-1` (minmax(0,1fr)) on the three two-column page grids | Fixed & verified (real-data walkthrough) |
 | BUG-019 | "Bug Tests 6–7" checked the sidebar worker status without reloading | Tests | P3 | S4 | Sidebar status is server-rendered on navigation | Reload before asserting | Fixed & verified |
 | BUG-020 | Worker help text told users to run `npm run dev` / `npm run worker` | Worker UI | P2 | S3 | Text written for development | Now says `npm start` and that queued audits are kept | Fixed |
+
+---
+
+## Browser QA 2026-11-04 (source: `browser_qa_2026-11-04/WEBAUDIT_BUG_REGISTER.md`)
+
+Verification: **Verified** = reproduced from code and stored data (copy of the real database, never the live file) · **Not reproduced** = tried and could not trigger. "Forward-only" = applies to new audits/imports; stored history is unchanged (changing it needs approval).
+
+| ID | Pri | Status | Verification and root cause (confirmed in code/data) | Fix | Tests | Commit |
+|---|---|---|---|---|---|---|
+| BUG-01 | P1 | **Fixed** (live check blocked) | Verified: `gsc.ts` mapped every HTTP 403 to "no permission for this property", including `SERVICE_DISABLED` / `accessNotConfigured` | `classifyGoogleError` (api-disabled, permission, auth, quota, network, transient); Retry / Test connection; admin fix steps; raw Google text admin-only; property list only after a successful listing | `qa-sprint.test.ts` BUG-01 (3) | 8700119 |
+| BUG-02 | P2 | **Fixed** | Verified: six screens derived status from different fields | `searchConsoleStatus()` from saved data only, on Overview, Connections, SEO Overview + health cards, Search Console / Inspection / Sitemaps, New Audit, Settings | BUG-02 state walk-through | 8700119 |
+| BUG-03 | P1 | **Fixed & verified on real data** | Verified: `new Map()` over a newest-first list kept the oldest row per URL+device | Shared `latestPsiPerKey`; CHM home mobile now 52 (latest), was 59 (first) | 3 tests | 88c7ee2 |
+| BUG-04 | P2 | **Fixed** | Verified from tasks: form submitted 12× in 49 s (2× with skip cache) → 120 tasks; only 30 real Google calls, 90 cache reuses each stored as a new row ("12 runs") | In-flight dedupe per URL+device; cache reuse stores no duplicate row for the same context; History counts distinct measurements. No rows deleted | 2 tests + updated cache test | 629ec2e |
+| BUG-05 | P2 | **Fixed (forward-only)** | Verified: on all 5 pages the "URL-level" CrUX values equal the origin values exactly; parser ignored PageSpeed's `origin_fallback` | Honour `origin_fallback`; whole-site data → one finding per metric+device "(whole site)". Existing 40 CWV findings unchanged (re-import needs approval) | 2 tests | 0287c22 |
+| BUG-06 | P2 | **Fixed** | Verified: summary used the mobile result only | Separate mobile / desktop real-user lines, each labelled "this page" / "whole site" | 1 test | 0287c22 |
+| BUG-07 | P2 | **Fixed & verified on real data** | Verified: "New" ignored base-audit coverage | "Not checked before" status from what the base audit actually recorded. CHM 3 Nov → 4 Nov: New 197 → 1 | 2 tests | 05cf366 |
+| BUG-08 | P2 | **Fixed for matching** (no history rewrite) | Verified: base audit fingerprinted before the 3 Nov normalisation; `sm-<timestamp>-n` ids broke matches | Compare-time match key recomputed from stored rule/selector/page; false "Resolved" 40 → 0. Stored fingerprints untouched | 1 test | 05cf366 |
+| BUG-09 | P2 | **Fixed** (size check pending) | Verified: all 827 rows + images in one response | 50 rows/page, images only for the first 10, evidence only for rows on screen | E2E Test 12 | 05cf366 |
+| BUG-10 | P2 | **Not reproduced** | 0 × 5xx in 61 `?_rsc=` requests (Edge + Chrome, real-data copy, prod build); no 503 code path in Next.js or the app; QA-time server log has no 503 | Regression guard: E2E fails on any 5xx or full reload while clicking every sidebar link and Google tab | E2E BUG-10 | d659abc |
+| BUG-11 | P2 | **Fixed** (display only) | Verified: codes restart per website | Website named in the ID cell when the list mixes websites. No ID migration | 1 test | 6630fc9 |
+| BUG-12 | P2 | **Fixed (forward-only)** | Verified in `validate.ts`: `""` failed presence + type checks; type error on a recommended property blocked eligibility | One verdict per property (missing / empty / invalid); optional invalid → warning; rules version 2026-11-04 | 4 tests | f23ac82 |
+| BUG-13 | P3 | **Fixed** | Verified: count included pages with zero items | Count pages with ≥1 item (+ "Pages checked"); empty pages say so | 1 test | f23ac82 |
+| BUG-14 | P2 | **Fixed** | Verified: fixed engine category list | Categories (with counts) from the selected audit, incl. Performance and Core Web Vitals | 1 test | f6bab78 |
+| BUG-15 | P3 | **Fixed** | Verified | Generate disabled with explanation at 0; server rejects empty reports | 1 test | f6bab78 |
+| BUG-16 | P3 | **Fixed** | Verified | Multi-category `types` filter; each card opens its own categories; accessible names "Open Accessibility findings (n)" | 1 test | 09cbbb1 |
+| BUG-17 | P3 | **Fixed** | Verified | "Choose an action…" default (required); server needs action + rows, confirmation above 10 | 1 test | e17ccf1 |
+| BUG-18 | P3 | **Fixed** | Verified | Buttons per classification with one-line explanation | 1 test | e17ccf1 |
+| BUG-19 | P3 | **Fixed (forward-only)** | Verified from evidence: CNT-0001's box is 0×0 at (0,0), i.e. the image isn't laid out at all | Elements <4×4 px with a real position get a 56 px ring + caption; unpositioned elements get no misleading crop and the viewer explains why | 1 test + render check on a copied screenshot | 9192097 |
+| BUG-20 | P3 | **Fixed** | Verified: "Started" showed queue time; activity used finish time unlabelled | Queued / Started / Finished / Duration; labelled "finished" vs "queued" | 1 test | 5bc6b8e |
+| BUG-21 | P3 | **Fixed** | Verified: records were consistent (2 cancelled while queued, 1 after 22 s with 109 raw findings) but unexplained | Cancellation note (who/when/what was kept), `cancelled_by` stored for new cancellations, one pages format | 1 test | 5bc6b8e |
+| BUG-22 | P3 | **Fixed** | Verified | Descriptive titles on issue/audit/project pages | E2E | 036a2ec |
+| BUG-23 | P3 | **Fixed** | Verified | Branded root 404 with Overview/Issues/Help | E2E | 036a2ec |
+| BUG-24 | P3 | **Fixed** | Verified: 20-page CHM audit took 16 m 28 s | Estimate from this installation's audits (median s per page per screen size) in Help and New Audit | 1 test | 33716a7 |
+| BUG-25 | P3 | **Fixed (forward-only)** | Verified from evidence: real computed value on a 668×1 px spacer `<p>`; false positive, not a parser bug | Skip elements shorter than half a line; ratios < 0.5 → Needs review | 3 tests | 1341e0d |

@@ -1,4 +1,4 @@
-# Release Readiness (2026-11-03)
+# Release Readiness (updated 2026-11-04 after the browser-QA sprint)
 
 | Question | Answer |
 |---|---|
@@ -16,3 +16,12 @@
 - [x] Backup created and verified (`data/backups/…`)
 - [ ] Off-machine copy of `data/` scheduled
 - [ ] Google credentials entered and live checks passed (PB-01)
+
+## After the browser-QA sprint (2026-11-04)
+| Question | Answer |
+|---|---|
+| P1 bugs from the QA report | BUG-03 fixed and verified on real data. BUG-01 fixed in code and tested with mocked Google responses; **live Search Console still blocked** until the API is enabled in Google Cloud (external action). |
+| P2/P3 bugs | 22 of the remaining 23 fixed with tests; BUG-10 not reproducible (guarded by an E2E test). |
+| Historical data | Unchanged: no audits, findings, PageSpeed rows or fingerprints were deleted or rewritten. Forward-only fixes apply to new audits/imports. |
+| Still blocking client deployment | Same as before (HTTPS/hosting, CSP, persistent rate limits, storage retention, restore command), plus live Search Console verification. Not production-ready. |
+| Human usability testing | Still not done; automated tests show the flows work, not that non-technical users find them easy. |

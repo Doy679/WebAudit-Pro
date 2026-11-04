@@ -57,3 +57,39 @@ Logical work stages, not dates. "Done" follows the Definition of Done: root caus
 | CSP | Open: PB-03 |
 | Google live verification | Blocked: PB-01 (credentials) |
 | Deployment hardening | Open: PB-04 |
+
+## Browser QA sprints (2026-11-04): source `browser_qa_2026-11-04/`
+
+### Sprint 0: Baseline ✅
+- Backup: `data/backups/pre-qa-sprint-2026-11-04/` (DB via `VACUUM INTO`, integrity ok, 3,367 findings, 120 PageSpeed results; 1.4 GB evidence copy, byte-identical). Git tag `checkpoint-pre-qa-sprint`.
+- Baseline: typecheck pass, unit 244/244, E2E 23/23. Evidence screenshots E01–E24 are **not on this PC**; findings were reproduced from code and stored data instead.
+- All reproduction used copies of the database (`.tmp/qa`); the live `data/webaudit.db` was opened read-only only.
+
+### Sprint 1: P1 + navigation ✅
+| Item | Status |
+|---|---|
+| BUG-03 PageSpeed latest | Completed & tested (real-data copy: 52, was 59) |
+| BUG-01 Search Console errors | Completed & tested with mocked Google responses; **live check blocked** (Search Console API disabled in Google Cloud project; needs your action) |
+| BUG-02 Status consistency | Completed & tested |
+| BUG-10 `?_rsc=` 503 | Not reproduced (0/61); E2E guard added |
+
+### Sprint 2: Data quality ✅ (forward-only)
+BUG-04, 05, 06, 11, 12, 13, 21, 25: Completed & tested. Historical counts and findings unchanged.
+
+### Sprint 3: UX ✅ (scoped)
+BUG-15, 16, 17, 18, 19, 20, 22, 23, 24; UX-04, 07, 09, 11, 13, 14, 15, 16, 17, 19, 20: Completed & tested. UX-01, 06, 12, 18: partly done.
+
+### Sprint 4: Re-Audit and reports ✅ (scoped)
+BUG-07, 08, 09, 14; UX-08: Completed & tested (CHM re-audit: New 197 → 1).
+
+### Blocked / needs approval / not started
+| Item | Why |
+|---|---|
+| Search Console live verification (BUG-01 end to end) | Search Console API must be enabled in Google Cloud project 154245030857 (your action), then one approved test call |
+| UX-02 status vocabulary | Changes persisted/exported terms: needs approval |
+| UX-05 merge near-identical findings; BUG-05 re-import of existing CWV findings | Change client-facing High counts: needs approval |
+| UX-06 Client PDF "reviewed only" default | Report default change: needs approval |
+| UX-03 review queue | Not started (8 SP) |
+| UX-10 apply-on-change selects | Deferred: WCAG 3.2.2 risk |
+| UX-12 structured-data summary/filters | Not started |
+| CSP, deployment hardening (PB-03/04) | Not started; CSP needs approval |

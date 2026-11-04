@@ -23,3 +23,18 @@ Completed items are in `BUG_REGISTER.md` and `SPRINT_BOARD.md`; this backlog lis
 | PB-16 | Tooling: lint, CI, deprecation noise | Tech debt | Quality gates run only locally | P2 | S4 | No ESLint config or CI; `module.register` deprecation warnings from tsx | ESLint (Next config), CI running typecheck + tests + build; update tsx when fixed | 3 | — | CI green on every commit | — | Open |
 | PB-17 | Migrations framework | Tech debt | Schema changes are additive `ALTER TABLE` checks | P3 | S4 | MVP scope | Versioned migrations table; tested upgrade from the oldest DB | 3 | PB-06 | Upgrade test from a 2026-10 DB copy | Integration test | Open |
 | PB-18 | Future: scheduled audits, regression alerts, trends, rule profiles, task integrations, white-label | Product | — | P3 | — | Not started; depends on PB-04/05/13 | Plan after deployment hardening | 13+ | PB-04 | — | — | Backlog |
+
+## Added from browser QA 2026-11-04 (open items only; fixed items are in BUG_REGISTER.md)
+
+| ID | Title | Pri | SP | Depends on | Approval | Acceptance criteria |
+|---|---|---|---|---|---|---|
+| QA-01 | Verify Search Console end to end | P1 | 2 | You enable the Search Console API in Google Cloud project 154245030857 | One live `sites.list` call | Connections → Retry shows "working, N properties"; property selectable; Performance / Inspection / Sitemaps fetch real data |
+| QA-02 | Re-import existing CWV findings as whole-site (BUG-05 history) | P2 | 2 | — | **Yes** (CHM High count drops by up to 20) | One finding per metric+device for the 4 Nov CHM audit |
+| QA-03 | Status vocabulary (UX-02) | P2 | 5 | — | **Yes** (export/report wording) | No screen shows "Confirmed" next to "Unverified"; Help glossary matches |
+| QA-04 | Review queue (UX-03) | P1 | 8 | QA-03 | — | Review 20 findings without opening pages; progress persists |
+| QA-05 | Merge near-identical findings (UX-05) | P2 | 5 | PB-02 | **Yes** (counts) | Same rule + same failure signature on the same pages = one finding |
+| QA-06 | Live report preview and Client PDF default (UX-06) | P2 | 3 | — | **Yes** (default) | Preview updates without a button; Client PDF can't include unreviewed findings without a tick |
+| QA-07 | Structured Data page summary, errors-only filter, collapsed sections (UX-12) | P2 | 3 | — | — | Errors reachable in one click |
+| QA-08 | Guided Search Console checklist card (UX-01 remainder) | P2 | 3 | QA-01 | — | 5 steps with live ticks |
+| QA-09 | Re-fingerprint historical findings (BUG-08 history) | P3 | 2 | — | **Yes** | Not required for matching: comparisons already use recomputed keys |
+| QA-10 | Test/QA servers never call Google by default (env flag; Connections uses saved status only) | P1 | 2 | — | — | A QA server on a data copy makes zero outbound Google requests |
