@@ -9,7 +9,7 @@ import { deleteView, saveView } from "@/server/saved-views";
 import { dismissOnboarding } from "@/server/onboarding";
 import { addMember, createProject, removeMember, updateProject, type ProjectSettings } from "@/server/projects";
 import { ActiveAuditError, createAuditRun, requestCancel } from "@/server/runs";
-import { bulkReview, reviewIssue, type ReviewAction } from "@/server/issues";
+import { bulkReview, checkBulkRequest, reviewIssue, type ReviewAction } from "@/server/issues";
 import { createExport, type ExportFormat, type ExportFilters } from "@/server/exports";
 import { createPackage, revokePackage, submitDecisions, type Decision } from "@/server/approvals";
 import { assertCan } from "@/server/permissions";
@@ -221,6 +221,7 @@ export async function bulkReviewAction(_: ActionState, fd: FormData): Promise<Ac
   return attempt(async () => {
     const user = await requireUser();
     const ids = fd.getAll("ids").map(String);
+    checkBulkRequest(str(fd, "action"), ids.length, fd.get("confirmLarge") === "on");
     const n = bulkReview(user, ids, reviewFromForm(fd));
     revalidatePath("/issues");
     return { ok: `Updated ${n} finding${n === 1 ? "" : "s"}.` };

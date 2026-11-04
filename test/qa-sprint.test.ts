@@ -214,3 +214,21 @@ describe("BUG-14 / BUG-15: report categories and empty reports", () => {
     expect(createExport(admin, { runId, format: "xlsx", filters: { type: "cwv" } })).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
+
+describe("BUG-17 / BUG-18: safe review controls", async () => {
+  const issuesMod = await import("../server/issues");
+  it("bulk actions need a deliberate choice, a selection, and confirmation above 10 rows", () => {
+    expect(() => issuesMod.checkBulkRequest("", 3, false)).toThrow(/choose an action/i);
+    expect(() => issuesMod.checkBulkRequest("confirm", 0, false)).toThrow(/select at least one/i);
+    expect(() => issuesMod.checkBulkRequest("confirm", 11, false)).toThrow(/11 findings/);
+    expect(() => issuesMod.checkBulkRequest("confirm", 11, true)).not.toThrow();
+    expect(() => issuesMod.checkBulkRequest("false_positive", 10, false)).not.toThrow();
+  });
+
+  it("offers review actions that match the finding's classification", () => {
+    const keys = (k: string) => issuesMod.reviewActionsFor(k).map((a) => a.action);
+    expect(keys("confirmed")).toEqual(["confirm", "false_positive", "note"]);
+    expect(keys("needs-review")).toEqual(["confirm", "false_positive", "note"]);
+    expect(keys("recommendation")).toEqual(["approve", "request_revision", "reject", "note"]);
+  });
+});

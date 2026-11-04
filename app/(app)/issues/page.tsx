@@ -142,7 +142,8 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
             <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-sm">
               <span className="font-medium text-slate-700">With selected:</span>
               <label className="sr-only" htmlFor="bulk-action">Bulk action</label>
-              <select id="bulk-action" name="action" className={cx(input.replace("w-full", "w-auto"), "py-1.5")} defaultValue="confirm">
+              <select id="bulk-action" name="action" required className={cx(input.replace("w-full", "w-auto"), "py-1.5")} defaultValue="">
+                <option value="" disabled>Choose an action…</option>
                 <option value="confirm">Confirm finding</option>
                 <option value="false_positive">Mark false positive</option>
                 <option value="approve">Approve recommendation</option>
@@ -155,6 +156,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                 <option value="">(for Assign) Unassigned</option>
                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+              <label className="flex items-center gap-1.5 text-xs text-slate-700"><input type="checkbox" name="confirmLarge" /> Yes, apply to all selected <span className="text-slate-500">(needed above 10)</span></label>
               <Submit variant="secondary">Apply</Submit>
               {reportRun && can(user, "export:create") && (
                 <>

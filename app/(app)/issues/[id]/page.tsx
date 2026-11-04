@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { orNotFound, requireUser } from "@/app/lib/session";
-import { getIssue } from "@/server/issues";
+import { getIssue, reviewActionsFor } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
 import { aiSettings } from "@/server/settings";
@@ -195,13 +195,13 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
                 <input type="hidden" name="issueId" value={i.id} />
                 <label htmlFor="note" className={label}>Note (optional, saved with the decision)</label>
                 <textarea id="note" name="note" rows={2} className={input} />
-                <div className="grid grid-cols-2 gap-2">
-                  <Submit name="action" value="confirm" variant="secondary">Confirm finding</Submit>
-                  <Submit name="action" value="false_positive" variant="secondary">Mark false positive</Submit>
-                  <Submit name="action" value="approve" variant="secondary">Approve recommendation</Submit>
-                  <Submit name="action" value="request_revision" variant="secondary">Request revision</Submit>
-                  <Submit name="action" value="reject" variant="danger">Reject recommendation</Submit>
-                  <Submit name="action" value="note" variant="secondary">Add note only</Submit>
+                <p className="text-xs text-slate-600">
+                  {i.kind === "recommendation"
+                    ? "This is a recommended improvement: approve it, send it back for revision, or reject it."
+                    : "This is a measured or possible problem: confirm it's real, or mark it as a false positive."}
+                </p>
+                <div className="grid grid-cols-2 gap-2" data-testid="review-actions">
+                  {reviewActionsFor(i.kind).map((a) => <Submit key={a.action} name="action" value={a.action} variant={a.variant}>{a.label}</Submit>)}
                 </div>
               </ActionForm>
               <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">

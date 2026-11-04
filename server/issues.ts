@@ -302,3 +302,30 @@ export function filterOptions(user: User, runId?: string, projectId?: string) {
     viewports: all<{ v: number }>(`SELECT DISTINCT j.value AS v FROM issues i, json_each(${jsonArray("i.viewports_json")}) j WHERE ${scope.sql} AND ${runSql} AND typeof(j.value) = 'integer' ORDER BY v`, ...params).map((r) => r.v),
   };
 }
+
+/** BUG-17: a bulk change needs an explicit action, at least one row, and confirmation above 10 rows. */
+export function checkBulkRequest(action: string, count: number, confirmedLarge: boolean) {
+  if (!action) throw new Error("Choose an action first.");
+  if (!count) throw new Error("Select at least one finding.");
+  if (count > 10 && !confirmedLarge) throw new Error(`You selected ${count} findings. Tick "Yes, apply to all selected" to confirm, then press Apply again.`);
+}
+
+/**
+ * BUG-18: review actions that make sense for a classification. Measured or uncertain findings are confirmed or
+ * dismissed; recommendations are approved, sent back or rejected. A note can always be added.
+ */
+export function reviewActionsFor(kind: string): { action: "confirm" | "false_positive" | "approve" | "request_revision" | "reject" | "note"; label: string; variant: "secondary" | "danger" }[] {
+  const note = { action: "note" as const, label: "Add note only", variant: "secondary" as const };
+  return kind === "recommendation"
+    ? [
+        { action: "approve", label: "Approve recommendation", variant: "secondary" },
+        { action: "request_revision", label: "Request revision", variant: "secondary" },
+        { action: "reject", label: "Reject recommendation", variant: "danger" },
+        note,
+      ]
+    : [
+        { action: "confirm", label: "Confirm finding", variant: "secondary" },
+        { action: "false_positive", label: "Mark false positive", variant: "secondary" },
+        note,
+      ];
+}
