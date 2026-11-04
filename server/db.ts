@@ -200,9 +200,19 @@ export function getDb(): DB {
   if (globalForDb.__webauditDb?.path === path) return globalForDb.__webauditDb.db;
   mkdirSync(dataDir(), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-  db.exec(SCHEMA);
-  migrate(db);
+  // The web app and the worker often open a new database at the same moment: wait for each other (busy_timeout
+  // first, so even the WAL switch waits) and run schema + migrations under one write lock, so a column is never
+  // added twice ("duplicate column name" crashed the worker on start-up).
+  db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(SCHEMA);
+    migrate(db);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
   globalForDb.__webauditDb = { path, db };
   return db;
 }
