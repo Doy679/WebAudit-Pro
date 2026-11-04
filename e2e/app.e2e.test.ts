@@ -8,6 +8,9 @@ import { join, resolve } from "node:path";
 import ExcelJS from "exceljs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { startFixtureServer } from "../test/fixtureServer";
+import { readFileSync } from "node:fs";
+import { inventoryFromCsv } from "../server/google/target-rules";
+import { seedTargetsInto } from "../server/google/target-seed";
 const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 
 const PORT = 3100;
@@ -551,6 +554,72 @@ describe("WebAudit Pro end to end", () => {
     await page.getByText(/Google credentials saved/).waitFor();
     await page.goto(`${APP}/google/connections?project=${projectId}`);
     expect(await page.getByTestId("setup-step-key-saved").getAttribute("data-state")).toBe("todo");
+  });
+
+  it("CHM targets: 48 pages selected, 4 exclusions, saved selection, no PageSpeed job, responsive at 390/768/1280", async () => {
+    // The real verified inventory, pointed at the local fixture site so nothing reaches the real website.
+    const csv = readFileSync(resolve("config/pagespeed-targets/capitalhomemortgage.com.csv"), "utf8");
+    const rows = inventoryFromCsv(csv).map((r) => ({ ...r, url: r.url ? r.url.replace("https://capitalhomemortgage.com", site.origin) : null }));
+    const w = new DatabaseSync(join(dataDir, "webaudit.db"));
+    try { expect(seedTargetsInto(w, projectId, rows).inserted).toBe(52); } finally { w.close(); }
+    const tasks = () => q<{ n: number }>("SELECT COUNT(*) AS n FROM google_tasks")[0].n;
+    const tasksBefore = tasks();
+
+    await page.goto(`${APP}/google/pagespeed?project=${projectId}`);
+    const line = page.getByTestId("targets-summary-line");
+    expect(await line.innerText()).toBe("48 URLs selected · Mobile ✓ Desktop ✓ · 96 requests in 5 batches");
+    const item = (name: string) => page.getByTestId("target-item").filter({ hasText: name }).first();
+    for (const s of ["Massachusetts", "Vermont", "Virginia"]) {
+      expect(await item(s).locator("input").isDisabled()).toBe(true);
+      expect(await item(s).innerText()).toMatch(/License Pending/);
+    }
+    expect(await item("New York").locator("input").isDisabled()).toBe(true);
+    expect(await item("New York").innerText()).toMatch(/Not Licensed[\s\S]*No landing page/);
+    expect(await item("Texas").locator("input").isChecked()).toBe(true);
+    // No key in this environment: the run is blocked with the reason, and nothing was queued by viewing the page.
+    expect(await page.getByTestId("run-targets").isDisabled()).toBe(true);
+    expect(await page.getByTestId("run-blocked").innerText()).toMatch(/PageSpeed isn't set up/);
+    expect(await page.getByTestId("historical-results").count()).toBe(1);
+
+    // Change and save the selection: persists after reload, still no PageSpeed job.
+    await item("Texas").locator("input").uncheck();
+    expect(await line.innerText()).toBe("47 URLs selected · Mobile ✓ Desktop ✓ · 94 requests in 5 batches");
+    expect(await page.getByTestId("targets-unsaved").count()).toBe(1);
+    await page.getByRole("button", { name: "Save target selection" }).click();
+    await page.getByText(/Target selection saved: 47 pages/).waitFor();
+    await page.reload();
+    expect(await page.getByTestId("targets-summary-line").innerText()).toMatch(/^47 URLs selected/);
+    expect(await item("Texas").locator("input").isChecked()).toBe(false);
+    await page.getByLabel("Desktop", { exact: true }).uncheck();
+    expect(await page.getByTestId("targets-summary-line").innerText()).toBe("47 URLs selected · Mobile ✓ Desktop ✗ · 47 requests in 5 batches");
+    await page.getByLabel("Search states").fill("new");
+    expect(await page.getByTestId("target-list").getByTestId("target-item").count()).toBe(4); // NH, NJ, NM, NY
+    await page.getByLabel("Search states").fill("");
+
+    // Responsive: usable single column on a phone, sticky summary, no sideways scrolling.
+    mkdirSync(resolve("test-results"), { recursive: true });
+    for (const width of [390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${APP}/google/pagespeed?project=${projectId}`);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `sideways scroll at ${width}px`).toBeLessThanOrEqual(0);
+      const cols = await page.getByTestId("target-list").evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+      if (width === 390) expect(cols).toBe(1);
+      await page.getByTestId("target-list").scrollIntoViewIfNeeded();
+      await page.mouse.wheel(0, 400);
+      const bar = await page.getByTestId("targets-summary").boundingBox();
+      expect(bar, `summary bar visible at ${width}px`).not.toBeNull();
+      await page.screenshot({ path: `test-results/chm-targets-${width}.png`, fullPage: false });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    // Restore the default selection.
+    await page.goto(`${APP}/google/pagespeed?project=${projectId}`);
+    await page.getByRole("button", { name: "Select all eligible states" }).click();
+    expect(await page.getByTestId("targets-summary-line").innerText()).toMatch(/^48 URLs selected/);
+    await page.getByRole("button", { name: "Save target selection" }).click();
+    await page.getByText(/Target selection saved: 48 pages/).waitFor();
+    expect(tasks()).toBe(tasksBefore); // viewing, selecting and saving never queued a PageSpeed request
   });
 
   it("BUG-10: loading Overview and Issues makes no failing background requests (prefetch is off by design)", async () => {

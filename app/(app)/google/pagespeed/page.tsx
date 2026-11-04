@@ -7,7 +7,11 @@ import { googleStatus } from "@/server/google/config";
 import { projectGoogle, psiResults, latestPsiPerKey, googleTasks, type PsiRow } from "@/server/google/service";
 import { fmtFieldValue } from "@/server/google/psi";
 import { listRuns, runPages } from "@/server/runs";
-import { queuePsiAction } from "@/app/google-actions";
+import { queuePsiAction, saveTargetSelectionAction, setLicensingStatusAction, startTargetRunAction } from "@/app/google-actions";
+import { hasTargets, listTargets, monitoredResults, targetPanelState, targetRunProgress } from "@/server/google/targets";
+import { LICENSING_LABEL } from "@/server/google/target-rules";
+import { PageSpeedTargets } from "@/components/PageSpeedTargets";
+import type { User } from "@/server/auth";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { CwvBadge, Delta, GoogleTabs, ProjectPicker, Score, Source, Unavailable, PsiHealthNotice } from "@/components/google";
@@ -36,6 +40,8 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
   const lastRun = listRuns(user, { projectId: project.id, status: "completed", limit: 1 })[0];
   const suggested = lastRun ? runPages(lastRun.id).filter((p) => p.ok).map((p) => p.url).slice(0, Math.min(5, pg.psi_max_urls)) : [project.base_url];
   const detail = sp.id ? all.find((r) => r.id === sp.id) : undefined;
+  // Projects with saved monitoring targets (CHM) measure those pages; others keep "pre-filled from the latest audit".
+  const withTargets = hasTargets(project.id);
 
   return (
     <>
@@ -47,6 +53,7 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
       {detail ? <PsiDetail row={detail} history={all.filter((r) => r.url === detail.url && r.strategy === detail.strategy)} project={project.id} /> : (
         <>
           {psiHealth.state !== "ok" && <div className="mb-4"><PsiHealthNotice health={psiHealth} /></div>}
+          {withTargets ? <TargetsSection user={user} projectId={project.id} /> : (<>
           {can(user, "audit:start") && status.apiKeyConfigured && (
             <Card title="Analyse pages" className="mb-6">
               <ActionForm action={queuePsiAction} className="space-y-3">
@@ -110,9 +117,122 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
               </div>
             ) : <Empty title="No PageSpeed results yet" />}
           </Card>
+          </>)}
         </>
       )}
     </>
+  );
+}
+
+/** Monitoring targets (CHM): selection, confirmed batched runs, results per target and the untouched history. */
+function TargetsSection({ user, projectId }: { user: User; projectId: string }) {
+  const targets = listTargets(user, projectId);
+  const panel = targetPanelState(user, projectId);
+  const progress = targetRunProgress(user, projectId);
+  const { monitored, unmonitored } = monitoredResults(user, projectId);
+  return (
+    <div className="space-y-6">
+      {progress && !progress.finished && <AutoRefresh everyMs={4000} />}
+      <Card title="Monitoring targets">
+        <p className="mb-3 text-sm text-slate-600">
+          The pages measured on every PageSpeed run for this website. Licensing exclusions come from the owner&apos;s list; the latest audit no longer changes this list.
+          Saving or changing the selection never sends a request to Google.
+        </p>
+        <PageSpeedTargets projectId={projectId} targets={targets.map((t) => ({ id: t.id, label: t.label, url: t.url, group: t.group, state_code: t.state_code, licensing_status: t.licensing_status, verification_status: t.verification_status, verification_note: t.verification_note, selected: t.selected }))}
+          projectLimit={panel.projectLimit} cachedKeys={panel.cachedKeys} inFlightKeys={panel.inFlightKeys} canEdit={can(user, "project:edit")} canRun={can(user, "audit:start")}
+          blocked={panel.blocked} inProgress={panel.inProgress} saveAction={saveTargetSelectionAction} runAction={startTargetRunAction} />
+      </Card>
+
+      {can(user, "settings:manage") && (
+        <Card title="Licensing status (admin)">
+          <p className="mb-2 text-xs text-slate-600">Owner-supplied. A state can be measured only while it is Eligible; changing it to anything else removes it from the selection.</p>
+          <ActionForm action={setLicensingStatusAction} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="projectId" value={projectId} />
+            <div className="min-w-0 flex-1">
+              <label htmlFor="lic-target" className={label}>State</label>
+              <select id="lic-target" name="targetId" className={`${input} mt-1`}>
+                {targets.filter((t) => t.group === "state").map((t) => <option key={t.id} value={t.id}>{t.label}: {LICENSING_LABEL[t.licensing_status]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="lic-status" className={label}>New status</label>
+              <select id="lic-status" name="status" className={`${input} mt-1`}>
+                <option value="eligible">Eligible</option><option value="license_pending">License Pending</option><option value="not_licensed">Not Licensed</option>
+              </select>
+            </div>
+            <Submit variant="secondary">Save licensing status</Submit>
+          </ActionForm>
+        </Card>
+      )}
+
+      {progress && (
+        <Card title={`Latest run: ${fmtDate(progress.created_at)}`}>
+          <p className="mb-2 text-sm text-slate-600" data-testid="run-progress-line">{progress.urls} URLs · {progress.devices.replace(",", " + ")} · {progress.requests} requests{progress.skipCache ? " · cache skipped" : ""} · {progress.finished ? "finished" : "in progress (refreshes automatically)"}</p>
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Run progress by batch">
+            <table className="w-full min-w-[480px] text-left text-sm" data-testid="run-batches">
+              <thead className="text-xs uppercase text-slate-500"><tr><th className="py-1 pr-3">Batch</th><th className="pr-3">URLs</th><th className="pr-3">Queued</th><th className="pr-3">Running</th><th className="pr-3">Done</th><th className="pr-3">Cached</th><th>Failed</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {progress.batches.map((b) => <tr key={b.number}><td className="py-1 pr-3">{b.number}</td><td className="pr-3">{b.urls}</td><td className="pr-3">{b.queued}</td><td className="pr-3">{b.running}</td><td className="pr-3">{b.done}</td><td className="pr-3">{b.cached}</td><td className={b.failed ? "font-medium text-sev-high" : undefined}>{b.failed}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          <details className="mt-2 text-sm">
+            <summary className="cursor-pointer text-accent-600">Each URL and device ({progress.items.length})</summary>
+            <ul className="mt-2 space-y-1 text-xs">
+              {progress.items.map((i) => <li key={`${i.url}|${i.strategy}`} className="break-all"><span className="font-medium">{i.state}</span> · batch {i.batch} · {i.strategy} · {i.url}{i.message ? <span className={i.state === "failed" ? " text-sev-high" : " text-slate-500"}>: {i.message}</span> : null}</li>)}
+            </ul>
+          </details>
+        </Card>
+      )}
+
+      <Card title={`Monitored targets (${monitored.length})`}>
+        <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Monitored targets results">
+          <table className="w-full min-w-[640px] text-left text-sm" data-testid="monitored-table">
+            <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Page</th><th className="pr-3">Mobile</th><th>Desktop</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {monitored.map((m) => (
+                <tr key={m.url} data-testid="monitored-row">
+                  <td className="py-2 pr-3"><span className="font-medium">{m.target.label}</span><span className="block break-all text-xs text-slate-500">{m.url}</span></td>
+                  <td className="pr-3 align-top"><ResultCell row={m.mobile} projectId={projectId} /></td>
+                  <td className="align-top"><ResultCell row={m.desktop} projectId={projectId} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <details className="rounded-lg border border-slate-200 bg-white" data-testid="historical-results">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-navy-900">Historical / unmonitored results ({unmonitored.length})</summary>
+        <div className="overflow-x-auto px-4 pb-4" tabIndex={0} role="region" aria-label="Historical and unmonitored results">
+          <p className="mb-2 text-xs text-slate-500">Earlier measurements of pages that aren&apos;t monitoring targets. Kept unchanged, with their original dates.</p>
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-3">Page</th><th className="pr-3">Device</th><th className="pr-3">Perf.</th><th>Measured</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {unmonitored.map((r) => (
+                <tr key={r.id}>
+                  <td className="max-w-[18rem] truncate py-2 pr-3"><Link className="text-accent-600 hover:underline" href={`/google/pagespeed?project=${projectId}&id=${r.id}`}>{shortUrl(r.url)}</Link></td>
+                  <td className="pr-3 capitalize">{r.strategy}</td>
+                  <td className="pr-3">{r.result ? <Score value={r.result.scores.performance} /> : <span className="text-xs text-sev-high">Failed</span>}</td>
+                  <td className="text-xs text-slate-500">{fmtDate(r.analysis_ts ?? r.fetched_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ResultCell({ row, projectId }: { row: PsiRow | null; projectId: string }) {
+  if (!row) return <span className="text-xs italic text-slate-500">Not measured yet</span>;
+  if (!row.result) return <span className="text-xs text-sev-high">Failed {fmtDate(row.fetched_at)}{row.error_kind ? `: ${FAILURE_WORDS[row.error_kind] ?? row.error_kind}` : ""}</span>;
+  return (
+    <span className="flex flex-col gap-0.5">
+      <Link href={`/google/pagespeed?project=${projectId}&id=${row.id}`} className="inline-flex items-center gap-2"><Score value={row.result.scores.performance} label="Performance" /><span className="text-xs text-slate-500">{fmtDate(row.analysis_ts ?? row.fetched_at)}</span></Link>
+      {row.newerFailure && <span className="text-xs text-sev-high">Newer attempt failed {fmtDate(row.newerFailure.at)}</span>}
+    </span>
   );
 }
 

@@ -6,6 +6,8 @@ import { requireUser } from "@/app/lib/session";
 import { saveGoogleCredentials } from "@/server/google/config";
 import { bindProperty, disconnect, presetRange, queueGsc, queuePsi, setProjectLimits, testPageSpeedKey, testSearchConsole } from "@/server/google/service";
 import type { ActionState } from "@/app/actions";
+import { saveTargetSelection, setLicensingStatus, startTargetRun } from "@/server/google/targets";
+import type { LicensingStatus } from "@/server/google/target-rules";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
 const lines = (fd: FormData, k: string) => str(fd, k).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -120,5 +122,38 @@ export async function testPageSpeedKeyAction(_: ActionState, fd: FormData): Prom
     // GQA-03: a repeat within the cooldown (or while a test runs) gets the earlier result, not a new request.
     const prefix = r.reused && r.kind !== "busy" ? `No new request sent: a test ran at ${new Date(r.at).toLocaleTimeString("en-US", { timeStyle: "short" })}. Result: ` : "";
     return r.ok ? { ok: `${prefix}${r.message}` } : { error: `${prefix}${r.message}` };
+  });
+}
+
+/** CHM targets: saves which monitoring targets are selected. Never starts a PageSpeed request. */
+export async function saveTargetSelectionAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser("project:edit");
+    const r = saveTargetSelection(user, str(fd, "projectId"), fd.getAll("target").map(String));
+    revalidatePath("/google/pagespeed");
+    return { ok: `Target selection saved: ${r.selected} page${r.selected === 1 ? "" : "s"}. Nothing was sent to Google.` };
+  });
+}
+
+/** Admin only: changes a target's owner-supplied licensing status. */
+export async function setLicensingStatusAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser("settings:manage");
+    setLicensingStatus(user, str(fd, "projectId"), str(fd, "targetId"), str(fd, "status") as LicensingStatus);
+    revalidatePath("/google/pagespeed");
+    return { ok: "Licensing status saved. A state that isn't eligible is removed from the selection." };
+  });
+}
+
+/** Starts a confirmed run of the saved selection, queued in batches. The confirmation restates the request count. */
+export async function startTargetRunAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser("audit:start");
+    const r = startTargetRun(user, str(fd, "projectId"), {
+      devices: fd.getAll("device").map(String) as ("mobile" | "desktop")[], skipCache: fd.get("skipCache") === "1",
+      confirmed: fd.get("confirm") === "on", expectedRequests: Number(fd.get("expectedRequests")),
+    });
+    revalidatePath("/google/pagespeed");
+    return { ok: `${r.queued} PageSpeed request${r.queued === 1 ? "" : "s"} queued in ${r.batches} batch${r.batches === 1 ? "" : "es"}.${r.recentlyMeasured ? ` ${r.recentlyMeasured} reused from results under 6 hours old.` : ""}${r.alreadyQueued ? ` ${r.alreadyQueued} were already queued.` : ""} Progress appears below.` };
   });
 }
