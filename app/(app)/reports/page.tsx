@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
 import { listRuns } from "@/server/runs";
-import { exportPreview, listExports, type ExportFilters } from "@/server/exports";
+import { exportPreview, listExports, reportCategories, type ExportFilters } from "@/server/exports";
 import { can } from "@/server/permissions";
 import { createExportAction } from "@/app/actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { btn, Card, cx, Empty, fmtDate, hint, input, label, PageHeader, StatusPill } from "@/components/ui";
-import { CATEGORIES } from "@/components/constants";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Reports" };
@@ -37,11 +36,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const selected = runs.find((r) => r.id === sp.run) ?? runs[0];
   const exports = listExports(user);
   const pending = exports.some((e) => e.status === "pending" || e.status === "running");
+  // BUG-14: categories come from the selected audit itself (with counts), including Performance and Core Web Vitals.
+  const categories = selected ? reportCategories(user, selected.id) : [];
   const ids = (Array.isArray(sp.ids) ? sp.ids : sp.ids ? [sp.ids] : []).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 2000);
   const filters: ExportFilters = {
     kind: ["confirmed", "recommendation", "needs-review"].includes(sp.kind ?? "") ? sp.kind : undefined,
     severity: ["high", "medium", "low"].includes(sp.severity ?? "") ? sp.severity : undefined,
-    type: CATEGORIES.some((c) => c.value === sp.type) ? sp.type : undefined,
+    type: categories.some((c) => c.value === sp.type) ? sp.type : undefined,
     reviewedOnly: sp.reviewed === "on",
     ids: ids.length ? ids : undefined,
   };
@@ -89,7 +90,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <div>
                   <label htmlFor="type" className={label}>Category</label>
                   <select id="type" name="type" defaultValue={filters.type ?? ""} className={`${input} mt-1`}>
-                    <option value="">All</option>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    <option value="">All</option>{categories.map((c) => <option key={c.value} value={c.value}>{c.label} ({c.count})</option>)}
                   </select>
                 </div>
               </div>
@@ -128,12 +129,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                     <div className="text-xs font-medium text-accent-600">{t.who}</div>
                     <p className="mt-1 text-sm text-slate-600">{t.text}</p>
                   </div>
-                  <Submit name="format" value={t.format} variant={t.format === "xlsx" || t.format === "pdf" ? "primary" : "secondary"} className="self-start">
+                  <Submit name="format" value={t.format} variant={t.format === "xlsx" || t.format === "pdf" ? "primary" : "secondary"} className="self-start"
+                    disabled={!preview?.total} title={!preview?.total ? "No findings match these options" : undefined}>
                     Generate {FORMAT_LABEL[t.format]}
                   </Submit>
                 </li>
               ))}
             </ul>
+            {!preview?.total && <p className="mt-2 text-sm font-medium text-sev-med" data-testid="empty-report-note">Generate is turned off because the report would be empty. Change the options in step 2.</p>}
             <p className={hint + " mt-2"}>Reports take a few seconds. When ready they appear under &quot;Your reports&quot; with a download link.</p>
           </ActionForm>
         </Card>

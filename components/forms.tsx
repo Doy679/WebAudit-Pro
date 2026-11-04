@@ -25,12 +25,12 @@ export function ActionForm({
   );
 }
 
-export function Submit({ children, variant = "primary", name, value, className }: {
-  children: ReactNode; variant?: keyof typeof btn; name?: string; value?: string; className?: string;
+export function Submit({ children, variant = "primary", name, value, className, disabled = false, title }: {
+  children: ReactNode; variant?: keyof typeof btn; name?: string; value?: string; className?: string; disabled?: boolean; title?: string;
 }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" name={name} value={value} disabled={pending} className={cx(btn[variant], className)} aria-busy={pending}>
+    <button type="submit" name={name} value={value} disabled={pending || disabled} title={title} className={cx(btn[variant], className)} aria-busy={pending}>
       {pending ? "Working…" : children}
     </button>
   );

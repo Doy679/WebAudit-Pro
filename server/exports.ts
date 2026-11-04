@@ -3,6 +3,7 @@ import type { User } from "./auth";
 import { assertCan, NotFoundError, projectScope } from "./permissions";
 import { getRun } from "./runs";
 import type { IssueFilters } from "./issues";
+import { CATEGORIES, PROVIDER_TYPES, TYPE_LABEL } from "../components/constants";
 
 export type ExportFormat = "xlsx" | "pdf" | "html" | "json";
 export const FORMATS: ExportFormat[] = ["xlsx", "pdf", "html", "json"];
@@ -27,6 +28,10 @@ export function createExport(user: User, input: { runId: string; format: ExportF
   const r = getRun(user, input.runId);
   if (r.status !== "completed") throw new Error("Reports can only be generated from a completed audit.");
   if (!FORMATS.includes(input.format)) throw new Error("Unknown report format.");
+  // BUG-15: never create an empty report, whatever the browser sent.
+  if (exportPreview(user, r.id, { excludeFalsePositives: true, ...(input.filters ?? {}) }).total === 0) {
+    throw new Error("No findings match these report options, so the report would be empty. Change the options and try again.");
+  }
   const id = newId();
   const ts = now();
   tx(() => {
@@ -82,4 +87,17 @@ export function exportPreview(user: User, runId: string, f: ExportFilters): { to
     `SELECT COUNT(*) AS total, COALESCE(SUM(severity = 'high'), 0) AS high, COALESCE(SUM(severity = 'medium'), 0) AS medium, COALESCE(SUM(severity = 'low'), 0) AS low
      FROM issues WHERE ${where.join(" AND ")}`, ...params)!;
   return { total: r.total, high: r.high, medium: r.medium, low: r.low };
+}
+
+/**
+ * Report category options for an audit (BUG-14): every category it actually has, with counts and the same labels
+ * as the audit page, including Google provider categories such as Performance and Core Web Vitals.
+ */
+export function reportCategories(user: User, runId: string): { value: string; label: string; count: number }[] {
+  getRun(user, runId); // access check
+  const order = [...CATEGORIES.map((c) => c.value), ...PROVIDER_TYPES.map((c) => c.value)];
+  return all<{ type: string; n: number }>(
+    "SELECT type, COUNT(*) AS n FROM issues WHERE run_id = ? AND verification_status != 'false_positive' GROUP BY type", runId)
+    .map((r) => ({ value: r.type, label: TYPE_LABEL[r.type] ?? r.type, count: r.n }))
+    .sort((a, b) => (order.indexOf(a.value) + 1 || 99) - (order.indexOf(b.value) + 1 || 99));
 }

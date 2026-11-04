@@ -183,3 +183,34 @@ describe("BUG-04: PageSpeed requests are idempotent and cache reuse doesn't infl
     expect(all("SELECT id FROM psi_results WHERE url = ?", u)).toHaveLength(before);
   });
 });
+
+describe("BUG-14 / BUG-15: report categories and empty reports", () => {
+  const runs2 = () => import("../server/runs");
+  const exportsMod = () => import("../server/exports");
+  let runId = "";
+  beforeAll(async () => {
+    const r = await runs2();
+    runId = r.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/" });
+    const issue = (code: string, type: string) => ({
+      id: code, type, rule: `${type}-rule`, kind: "confirmed", severity: "high", confidence: 0.9, title: code, fingerprint: code.toLowerCase().padEnd(16, "0"),
+      location: { url: "https://capitalhomemortgage.com/", pages: ["https://capitalhomemortgage.com/"], viewports: [390] },
+      instanceCount: 1, occurrences: [], recommendation: "x", current: "x", proposed: "y", evidence: { screenshots: [], boxes: [], capturedAt: "t" }, review: { status: "pending", notes: "", reviewer: null },
+    });
+    r.importResults(runId, [issue("P1", "performance"), issue("P2", "performance"), issue("C1", "cwv"), issue("L1", "layout")] as never, []);
+    r.finishRun(runId, "completed");
+  });
+
+  it("offers every category the audit actually has, including Performance and Core Web Vitals", async () => {
+    const { reportCategories, exportPreview } = await exportsMod();
+    const cats = reportCategories(admin, runId);
+    expect(cats.map((c) => c.value)).toEqual(expect.arrayContaining(["performance", "cwv", "layout"]));
+    expect(cats.find((c) => c.value === "performance")).toMatchObject({ label: "Performance", count: 2 });
+    expect(exportPreview(admin, runId, { type: "performance" }).total).toBe(2);
+  });
+
+  it("refuses to create an empty report on the server", async () => {
+    const { createExport } = await exportsMod();
+    expect(() => createExport(admin, { runId, format: "pdf", filters: { reviewedOnly: true } })).toThrow(/no findings match/i);
+    expect(createExport(admin, { runId, format: "xlsx", filters: { type: "cwv" } })).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
