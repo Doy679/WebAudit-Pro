@@ -71,14 +71,14 @@ export const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", approved: "Approved", revision_requested: "Revision requested", rejected: "Rejected",
   todo: "To do", in_progress: "In progress", done: "Done", wont_fix: "Won't fix",
   running: "Running", completed: "Completed", failed: "Failed", cancelled: "Cancelled",
-  new: "New", still_present: "Still present", changed: "Changed", resolved: "Resolved", reopened: "Reopened", unable_to_verify: "Unable to verify",
+  new: "New", still_present: "Still present", changed: "Changed", resolved: "Resolved", reopened: "Reopened", unable_to_verify: "Unable to verify", not_checked_before: "Not checked before",
 };
 const STATUS_TONE: Record<string, string> = {
   confirmed: "text-ok bg-ok-bg", approved: "text-ok bg-ok-bg", done: "text-ok bg-ok-bg", completed: "text-ok bg-ok-bg", resolved: "text-ok bg-ok-bg",
   false_positive: "text-slate-600 bg-slate-100", rejected: "text-sev-high bg-sev-high-bg", failed: "text-sev-high bg-sev-high-bg",
   new: "text-sev-high bg-sev-high-bg", reopened: "text-sev-high bg-sev-high-bg",
   revision_requested: "text-sev-med bg-sev-med-bg", changed: "text-sev-med bg-sev-med-bg", running: "text-accent-600 bg-accent-50",
-  in_progress: "text-accent-600 bg-accent-50", cancelled: "text-slate-600 bg-slate-100", unable_to_verify: "text-slate-600 bg-slate-100",
+  in_progress: "text-accent-600 bg-accent-50", cancelled: "text-slate-600 bg-slate-100", unable_to_verify: "text-slate-600 bg-slate-100", not_checked_before: "text-slate-700 bg-slate-100",
 };
 export function StatusPill({ status, label: text }: { status: string; label?: string }) {
   return (

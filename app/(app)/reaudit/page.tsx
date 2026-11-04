@@ -13,10 +13,12 @@ import { btn, Card, cx, Empty, fmtDate, input, label, Notice, PageHeader, Severi
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Re-Audit" };
 
-const ORDER: CompareStatus[] = ["new", "reopened", "changed", "still_present", "unable_to_verify", "resolved"];
-const MAX_IMAGE_ROWS = 30;
+const ORDER: CompareStatus[] = ["new", "reopened", "not_checked_before", "changed", "still_present", "unable_to_verify", "resolved"];
+// BUG-09: one page of rows at a time (the full CHM comparison was 2.2 MB of HTML); screenshots only for the first few.
+const PAGE_SIZE = 50;
+const MAX_IMAGE_ROWS = 10;
 
-export default async function ReauditPage({ searchParams }: { searchParams: Promise<{ project?: string; base?: string; latest?: string; status?: string }> }) {
+export default async function ReauditPage({ searchParams }: { searchParams: Promise<{ project?: string; base?: string; latest?: string; status?: string; page?: string }> }) {
   const user = await requireUser();
   const sp = await searchParams;
   const projects = listProjects(user);
@@ -30,7 +32,8 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
 
   let comparison: ReturnType<typeof compareProjectRuns> | null = null;
   let compareError: string | null = null;
-  if (base && latest && base.id !== latest.id) {
+  const sameAudit = !!(base && latest && base.id === latest.id);
+  if (base && latest && !sameAudit) {
     try {
       comparison = compareProjectRuns(user, base.id, latest.id);
     } catch (e) {
@@ -38,8 +41,16 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
     }
   }
 
-  const rows = comparison ? comparison.rows.filter((r) => !sp.status || r.status === sp.status) : [];
-  const ids = rows.slice(0, MAX_IMAGE_ROWS).flatMap((r) => [r.baseIssue?.id, r.latestIssue?.id]).filter((x): x is string => !!x);
+  const filtered = comparison ? comparison.rows.filter((r) => !sp.status || r.status === sp.status) : [];
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const page = Math.min(Math.max(Number(sp.page) || 1, 1), pages);
+  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const link = (patch: Record<string, string | undefined>) => {
+    const q = new URLSearchParams(Object.entries({ base: base?.id, latest: latest?.id, status: sp.status, ...patch }).filter(([, v]) => v) as [string, string][]);
+    return `/reaudit?${q.toString()}`;
+  };
+  const c = comparison?.counts ?? {};
+  const ids = (page === 1 ? rows.slice(0, MAX_IMAGE_ROWS) : []).flatMap((r) => [r.baseIssue?.id, r.latestIssue?.id]).filter((x): x is string => !!x);
   const evidence = new Map(
     (ids.length ? all<{ id: string; run_id: string; evidence_json: string }>(`SELECT id, run_id, evidence_json FROM issues WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids) : [])
       .map((r) => [r.id, { runId: r.run_id, annotated: (JSON.parse(r.evidence_json) as { annotated?: string }).annotated }]));
@@ -102,26 +113,33 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
 
           {runs.length < 2 && <Empty title="Two completed audits are needed to compare">Run a fresh audit after fixes are deployed.</Empty>}
           {compareError && <Notice tone="error">{compareError}</Notice>}
+          {sameAudit && runs.length > 1 && <Notice tone="warn">You picked the same audit twice. Choose an older audit as the base and a newer one to compare.</Notice>}
 
           {comparison && (
             <>
               <div className="mb-4 flex flex-wrap gap-2" data-testid="compare-counts">
-                <Link href={`/reaudit?base=${base!.id}&latest=${latest!.id}`} className={cx(btn.secondary, !sp.status && "border-navy-900")}>All ({comparison.rows.length})</Link>
+                <Link href={link({ status: undefined, page: undefined })} className={cx(btn.secondary, !sp.status && "border-navy-900")}>All ({comparison.rows.length})</Link>
                 {ORDER.map((s) => (
-                  <Link key={s} href={`/reaudit?base=${base!.id}&latest=${latest!.id}&status=${s}`} className={cx(btn.secondary, sp.status === s && "border-navy-900")} data-status={s}>
+                  <Link key={s} href={link({ status: s, page: undefined })} className={cx(btn.secondary, sp.status === s && "border-navy-900")} data-status={s}>
                     {STATUS_LABEL[s]} ({comparison!.counts[s] ?? 0})
                   </Link>
                 ))}
               </div>
+              <p className="mb-2 text-sm text-slate-800" data-testid="compare-summary">
+                <strong>{c.resolved ?? 0}</strong> fixed · <strong>{(c.still_present ?? 0) + (c.changed ?? 0)}</strong> still present · <strong>{(c.new ?? 0) + (c.reopened ?? 0)}</strong> new or returned
+                {c.not_checked_before ? <> · <strong>{c.not_checked_before}</strong> found by checks the base audit didn&apos;t run (not counted as new)</> : null}
+                {c.unable_to_verify ? <> · <strong>{c.unable_to_verify}</strong> couldn&apos;t be re-checked</> : null}.
+              </p>
               <p className="mb-4 text-xs text-slate-500">
+                “Not checked before” means the base audit didn&apos;t run that check (for example PageSpeed or structured data) or didn&apos;t scan that page, so it isn&apos;t a regression.
                 Matched by finding fingerprint (rule + element). “Resolved” requires every affected page to have been scanned successfully in the newer audit; otherwise the finding is “Unable to verify”. False positives are excluded.
               </p>
               {rows.length === 0 ? <Empty title="Nothing in this group" /> : (
                 <div className="space-y-3">
                   {rows.map((r, n) => {
                     const target = r.latestIssue ?? r.baseIssue!;
-                    const before = n < MAX_IMAGE_ROWS ? shot(r.baseIssue?.id) : undefined;
-                    const after = n < MAX_IMAGE_ROWS ? shot(r.latestIssue?.id) : undefined;
+                    const before = page === 1 && n < MAX_IMAGE_ROWS ? shot(r.baseIssue?.id) : undefined;
+                    const after = page === 1 && n < MAX_IMAGE_ROWS ? shot(r.latestIssue?.id) : undefined;
                     return (
                       <div key={r.fingerprint} className="rounded-lg border border-slate-200 bg-white p-3" data-testid="compare-row" data-status={r.status}>
                         <div className="flex min-w-0 flex-wrap items-center gap-2 break-words">
@@ -147,6 +165,15 @@ export default async function ReauditPage({ searchParams }: { searchParams: Prom
                     );
                   })}
                 </div>
+              )}
+              {pages > 1 && (
+                <nav aria-label="Pagination" className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span className="text-slate-600">Page {page} of {pages} · {filtered.length} items</span>
+                  <span className="flex gap-2">
+                    {page > 1 && <Link className={btn.secondary} href={link({ page: String(page - 1) })}>Previous</Link>}
+                    {page < pages && <Link className={btn.secondary} href={link({ page: String(page + 1) })}>Next</Link>}
+                  </span>
+                </nav>
               )}
             </>
           )}

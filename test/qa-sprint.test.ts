@@ -255,3 +255,47 @@ describe("BUG-11 / UX-04: mixed-website lists and quick-filter counts", async ()
     expect(counts.high).toBe(issuesMod.listIssues(admin, { ...parseIssueSearchParams({ quick: "high" }), runId: run }).total);
   });
 });
+
+describe("BUG-07 / BUG-08 / UX-08: Re-Audit comparisons", async () => {
+  const runsMod = await import("../server/runs");
+  const { compareProjectRuns } = await import("../server/compare");
+  const mk = (code: string, over: Record<string, unknown>) => ({
+    id: code, type: "a11y", rule: "axe:aria-valid-attr-value", kind: "confirmed", severity: "high", confidence: 0.9, title: code, fingerprint: code.toLowerCase().padEnd(16, "0"),
+    location: { url: "https://capitalhomemortgage.com/", pages: ["https://capitalhomemortgage.com/"], viewports: [390], selector: "#x" },
+    instanceCount: 1, occurrences: [], recommendation: "x", current: "x", proposed: "y", evidence: { screenshots: [], boxes: [], capturedAt: "t" }, review: { status: "pending", notes: "", reviewer: null }, ...over,
+  });
+  let base = "", after = "";
+  beforeAll(() => {
+    const page = { url: "https://capitalhomemortgage.com/", ok: true, status: 200 };
+    base = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/", categories: ["a11y"] } as never);
+    // Base run fingerprinted before the volatile-id normalisation: the stored fingerprint embeds the per-load id.
+    runsMod.importResults(base, [mk("A11Y-0001", { location: { url: page.url, pages: [page.url], viewports: [390], selector: "#sm-17936905811318271-1" }, fingerprint: "oldoldoldoldold1" })] as never, [page]);
+    runsMod.finishRun(base, "completed");
+    run("UPDATE audit_runs SET created_at = '2026-11-03T07:22:00.000Z' WHERE id = ?", base);
+    after = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/" } as never);
+    runsMod.importResults(after, [
+      mk("A11Y-0001", { location: { url: page.url, pages: [page.url], viewports: [390], selector: "#sm-17937559783053635-1" } }),
+      mk("TYP-0001", { type: "typography", rule: "font-too-small", location: { url: page.url, pages: [page.url], viewports: [390], selector: "p.small" } }),
+      mk("PERF-0001", { type: "performance", rule: "psi:lcp", provider: "psi", location: { url: page.url, pages: [page.url], viewports: [] } }),
+    ] as never, [page]);
+    run("UPDATE issues SET provider = 'psi' WHERE run_id = ? AND code = 'PERF-0001'", after);
+    runsMod.finishRun(after, "completed");
+  });
+
+  it("matches the same element across audits even when its per-load id changed (no history rewrite)", () => {
+    const { rows } = compareProjectRuns(admin, base, after);
+    expect(rows.find((r) => r.latestIssue?.code === "A11Y-0001")?.status).toBe("still_present");
+    expect(get<{ f: string }>("SELECT fingerprint AS f FROM issues WHERE run_id = ? AND code = 'A11Y-0001'", base)!.f).toBe("oldoldoldoldold1");
+  });
+
+  it("puts findings from checks the base audit didn't run in 'Not checked before', not 'New'", () => {
+    const { rows, counts } = compareProjectRuns(admin, base, after);
+    expect(rows.find((r) => r.latestIssue?.code === "TYP-0001")?.status).toBe("not_checked_before"); // base audit had only a11y
+    expect(rows.find((r) => r.latestIssue?.code === "PERF-0001")?.status).toBe("not_checked_before"); // no PageSpeed in base
+    expect(counts.new ?? 0).toBe(0);
+  });
+
+  it("refuses to compare an audit with itself", () => {
+    expect(() => compareProjectRuns(admin, after, after)).toThrow(/two different audits/i);
+  });
+});

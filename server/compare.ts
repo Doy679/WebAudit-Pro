@@ -1,8 +1,10 @@
 import { all } from "./db";
+import { fingerprint as engineFingerprint } from "../src/report/dedupe.js";
 import type { User } from "./auth";
 import { getRun } from "./runs";
 
-export type CompareStatus = "new" | "still_present" | "changed" | "resolved" | "reopened" | "unable_to_verify";
+/** not_checked_before: only in the newer audit, and its check didn't run in the base audit (BUG-07). */
+export type CompareStatus = "new" | "still_present" | "changed" | "resolved" | "reopened" | "unable_to_verify" | "not_checked_before";
 
 export interface CompareIssue {
   id: string;
@@ -12,6 +14,8 @@ export interface CompareIssue {
   rule: string;
   severity: string;
   kind: string;
+  /** Finding category (layout, a11y, performance…). */
+  type?: string;
   pages: string[];
   current: string | null;
   /** webaudit | schema | psi | crux | gsc */
@@ -46,6 +50,8 @@ export function compareRuns(
   earlierFingerprints: Set<string>,
   /** Whether the source that produced this finding ran successfully for it in the newer audit (default: its pages were scanned OK). */
   covered: (i: CompareIssue) => boolean = (i) => i.pages.every((p) => latestOkPages.has(p)),
+  /** Whether the base audit ran the check that produced a finding (default: yes). */
+  checkedInBase: (i: CompareIssue) => boolean = () => true,
 ): CompareRow[] {
   const baseBy = new Map(base.map((i) => [i.fingerprint, i]));
   const latestBy = new Map(latest.map((i) => [i.fingerprint, i]));
@@ -54,7 +60,9 @@ export function compareRuns(
   for (const b of base) {
     const l = latestBy.get(b.fingerprint);
     if (l) {
-      const changed = (b.current ?? "") !== (l.current ?? "");
+      // Per-load ids (8+ digits) in the measured text don't make a finding "changed" (BUG-08).
+      const same = (v: string | null) => (v ?? "").replace(/\d{8,}/g, "#");
+      const changed = same(b.current) !== same(l.current);
       rows.push({ fingerprint: b.fingerprint, status: changed ? "changed" : "still_present", title: l.title, rule: l.rule, severity: l.severity, pages: l.pages, baseIssue: b, latestIssue: l, before: b.current, after: l.current });
     } else {
       const verifiable = covered(b);
@@ -64,26 +72,36 @@ export function compareRuns(
   for (const l of latest) {
     if (baseBy.has(l.fingerprint)) continue;
     rows.push({
-      fingerprint: l.fingerprint, status: earlierFingerprints.has(l.fingerprint) ? "reopened" : "new",
+      fingerprint: l.fingerprint, status: earlierFingerprints.has(l.fingerprint) ? "reopened" : checkedInBase(l) ? "new" : "not_checked_before",
       title: l.title, rule: l.rule, severity: l.severity, pages: l.pages, latestIssue: l, before: null, after: l.current,
     });
   }
-  const order: CompareStatus[] = ["new", "reopened", "changed", "still_present", "unable_to_verify", "resolved"];
+  const order: CompareStatus[] = ["new", "reopened", "not_checked_before", "changed", "still_present", "unable_to_verify", "resolved"];
   return rows.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.title.localeCompare(b.title));
 }
 
+/**
+ * Matching key. Engine findings are re-keyed with today's fingerprint function from their stored rule, selector
+ * and page, so audits fingerprinted before the volatile-id normalisation still match (BUG-08). Stored
+ * fingerprints are never rewritten. Google findings keep their stored fingerprint.
+ */
+const matchKey = (r: { provider: string; fingerprint: string; rule: string; selector: string | null; url: string }) =>
+  r.provider === "webaudit" ? engineFingerprint({ rule: r.rule, location: { url: r.url, selector: r.selector ?? undefined } } as never) : r.fingerprint;
+
 const loadIssues = (runId: string) =>
-  all<{ id: string; code: string; fingerprint: string; title: string; rule: string; severity: string; kind: string; pages_json: string; current_value: string | null; provider: string; evidence_json: string }>(
-    "SELECT id, code, fingerprint, title, rule, severity, kind, pages_json, current_value, provider, evidence_json FROM issues WHERE run_id = ? AND verification_status != 'false_positive'", runId,
+  all<{ id: string; code: string; fingerprint: string; title: string; rule: string; severity: string; kind: string; type: string; pages_json: string; current_value: string | null; provider: string; evidence_json: string; selector: string | null; url: string }>(
+    "SELECT id, code, fingerprint, title, rule, severity, kind, type, pages_json, current_value, provider, evidence_json, selector, url FROM issues WHERE run_id = ? AND verification_status != 'false_positive'", runId,
   ).map((r) => ({
-    id: r.id, code: r.code, fingerprint: r.fingerprint, title: r.title, rule: r.rule, severity: r.severity, kind: r.kind, pages: JSON.parse(r.pages_json),
+    id: r.id, code: r.code, fingerprint: matchKey(r), title: r.title, rule: r.rule, severity: r.severity, kind: r.kind, type: r.type, pages: JSON.parse(r.pages_json),
     current: r.current_value, provider: r.provider, providerKey: (JSON.parse(r.evidence_json).computedCss?.strategy as string | undefined) ?? null,
   }));
 
-/** For each provider, which findings the newer audit actually re-measured. */
+/** For each provider, which findings an audit actually measured (used for the newer audit and, for BUG-07, the base). */
 function coverage(latestRunId: string, okPages: Set<string>) {
   const settings = JSON.parse(all<{ s: string }>("SELECT settings_json AS s FROM audit_runs WHERE id = ?", latestRunId)[0].s) as { categories?: string[] };
-  const schemaRan = !settings.categories?.length || settings.categories.includes("structured-data");
+  const categoryRan = (type?: string) => !settings.categories?.length || !type || settings.categories.includes(type);
+  // Structured data counts as checked only where the audit actually recorded a result for the page.
+  const sdPages = new Set(all<{ url: string }>("SELECT url FROM structured_data WHERE run_id = ?", latestRunId).map((r) => r.url));
   const psiOk = new Set(all<{ k: string }>("SELECT url || '|' || strategy AS k FROM psi_results WHERE run_id = ? AND status = 'ok'", latestRunId).map((r) => r.k));
   const inspected = new Set(all<{ key: string }>("SELECT key FROM gsc_data WHERE run_id = ? AND kind = 'inspection' AND status = 'ok'", latestRunId).map((r) => r.key));
   const sitemapsOk = all("SELECT 1 FROM gsc_data WHERE run_id = ? AND kind = 'sitemaps' AND status = 'ok'", latestRunId).length > 0;
@@ -92,8 +110,8 @@ function coverage(latestRunId: string, okPages: Set<string>) {
     switch (i.provider) {
       case "psi": case "crux": return i.pages.every((p) => psiOk.has(`${p}|${i.providerKey}`));
       case "gsc": return i.rule === "gsc:sitemap-errors" ? sitemapsOk : i.pages.every((p) => inspected.has(p));
-      case "schema": return schemaRan && pagesOk;
-      default: return pagesOk;
+      case "schema": return i.pages.every((p) => sdPages.has(p)) && pagesOk;
+      default: return categoryRan(i.type) && pagesOk;
     }
   };
 }
@@ -103,13 +121,15 @@ export function compareProjectRuns(user: User, baseRunId: string, latestRunId: s
   const base = getRun(user, baseRunId);
   const latest = getRun(user, latestRunId);
   if (base.project_id !== latest.project_id) throw new Error("Choose two audits of the same project.");
+  if (base.id === latest.id) throw new Error("Choose two different audits to compare.");
   if (base.created_at > latest.created_at) throw new Error("The base audit must be older than the comparison audit.");
   const okPages = new Set(all<{ url: string }>("SELECT url FROM run_pages WHERE run_id = ? AND ok = 1", latestRunId).map((r) => r.url));
-  const earlier = new Set(all<{ fingerprint: string }>(
-    `SELECT DISTINCT i.fingerprint FROM issues i JOIN audit_runs r ON r.id = i.run_id
+  const earlier = new Set(all<{ fingerprint: string; provider: string; rule: string; selector: string | null; url: string }>(
+    `SELECT DISTINCT i.fingerprint, i.provider, i.rule, i.selector, i.url FROM issues i JOIN audit_runs r ON r.id = i.run_id
      WHERE r.project_id = ? AND r.created_at < ? AND i.verification_status != 'false_positive'`, base.project_id, base.created_at,
-  ).map((r) => r.fingerprint));
-  const rows = compareRuns(loadIssues(baseRunId), loadIssues(latestRunId), okPages, earlier, coverage(latestRunId, okPages));
+  ).map(matchKey));
+  const baseOkPages = new Set(all<{ url: string }>("SELECT url FROM run_pages WHERE run_id = ? AND ok = 1", baseRunId).map((r) => r.url));
+  const rows = compareRuns(loadIssues(baseRunId), loadIssues(latestRunId), okPages, earlier, coverage(latestRunId, okPages), coverage(baseRunId, baseOkPages));
   const counts = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {});
   return { base, latest, rows, counts };
 }
