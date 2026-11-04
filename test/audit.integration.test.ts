@@ -99,7 +99,17 @@ describe("runAudit (integration)", () => {
   });
 
   it("detects broken images, broken internal links, placeholder text and misspellings", () => {
-    expect(find("broken-image")?.current).toContain("missing.jpg");
+    expect(result.issues.some((i) => i.rule === "broken-image" && (i.current ?? "").includes("/images/missing.jpg"))).toBe(true);
+    // BUG-19: a zero-size broken image with a real position gets a crop (ringed); one with no position gets none.
+    const broken = result.issues.filter((i) => i.rule === "broken-image" && i.location.url.endsWith("/problems.html"));
+    const tiny = broken.find((i) => (i.current ?? "").includes("missing-tiny.jpg"));
+    const hidden = broken.find((i) => (i.current ?? "").includes("missing-hidden.jpg"));
+    console.log("BUG-19 boxes:", JSON.stringify({ tiny: tiny?.evidence.boxes, tinyCrop: tiny?.evidence.annotated, hidden: hidden?.evidence.boxes, hiddenCrop: hidden?.evidence.annotated }));
+    if (tiny) expect(tiny.evidence.annotated).toBeDefined();
+    if (hidden) {
+      expect(hidden.evidence.boxes.every((b) => b.w <= 0 && b.h <= 0)).toBe(true);
+      expect(hidden.evidence.annotated).toBeUndefined();
+    }
     expect(find("placeholder-text")).toBeDefined();
     expect(find("suspected-misspelling")?.kind).toBe("needs-review");
     const links = result.issues.filter((i) => i.rule === "broken-internal-link").map((i) => i.current);

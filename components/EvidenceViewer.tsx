@@ -13,7 +13,11 @@ export interface Shot {
  * Shows the saved full-page screenshot for the chosen viewport with the affected element(s) outlined,
  * scrolled to the first box. Boxes are page coordinates from the capture, so they line up exactly.
  */
-export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; annotated?: string; pageUrl: string }) {
+export function EvidenceViewer({ shots, annotated: storedCrop, pageUrl }: { shots: Shot[]; annotated?: string; pageUrl: string }) {
+  // BUG-19: an element with no size and no position can't be outlined; crops stored before the fix show only a dot
+  // in the corner, so they aren't offered. The full-page screenshot opens instead, with an explanation.
+  const unpositioned = shots.some((s) => s.boxes.length > 0) && shots.every((s) => s.boxes.every((b) => b.w <= 0 && b.h <= 0 && b.x <= 0 && b.y <= 0));
+  const annotated = unpositioned ? undefined : storedCrop;
   const [mode, setMode] = useState<"crop" | number>(annotated ? "crop" : shots[0]?.viewport ?? "crop");
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -90,7 +94,7 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
         </div>
       )}
       {mode === "crop" && annotated && <p className="mt-1 text-xs text-slate-500">Click the image to open it at full size.</p>}
-      {shot && shot.boxes.length > 0 && shot.boxes.every((b) => b.w <= 0 && b.h <= 0) && (
+      {(unpositioned || (shot && shot.boxes.length > 0 && shot.boxes.every((b) => b.w <= 0 && b.h <= 0))) && (
         <p className="mt-1 text-xs text-slate-600" data-testid="no-size-note">This element has no visible size or position on the page (for example, an image that failed to load and isn&apos;t displayed), so it can&apos;t be outlined.</p>
       )}
       {shot && shot.boxes.length === 0 && <p className="mt-1 text-xs text-slate-500">Page-level finding: no single element to highlight at this width.</p>}
