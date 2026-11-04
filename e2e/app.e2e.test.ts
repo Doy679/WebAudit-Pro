@@ -359,8 +359,8 @@ describe("WebAudit Pro end to end", () => {
     await snap("google-overview");
 
     await page.goto(`${APP}/google/connections?project=${projectId}`);
-    expect(await page.getByTestId("psi-status").innerText()).toMatch(/PageSpeed not set up/);
-    expect(await page.getByTestId("oauth-status").innerText()).toMatch(/Not configured/);
+    expect(await page.getByTestId("setup-step-key-saved").getAttribute("data-state")).toBe("todo");
+    expect(await page.getByTestId("setup-step-account").innerText()).toMatch(/OAuth client isn't set up/);
     await snap("google-connections");
 
     await page.goto(`${APP}/google/structured-data?project=${projectId}&run=${runId}`);
@@ -509,6 +509,48 @@ describe("WebAudit Pro end to end", () => {
       await page.reload(); // the sidebar status is rendered on navigation
       expect(await page.getByTestId("nav-worker").getAttribute("data-state")).toBe("online");
     });
+  });
+
+  it("GQA-01/G3: Google Connections checks credential formats and guides setup (no Google requests)", async () => {
+    // Synthetic values in Google's documented shapes; nothing here is sent to Google (saving never calls Google).
+    const secretLike = `GOCSPX-${"e".repeat(28)}`;
+    const keyLike = `AIza${"E".repeat(35)}`;
+    await page.goto(`${APP}/google/connections?project=${projectId}`);
+    expect(await page.getByTestId("setup-checklist").locator("li").count()).toBe(5);
+    expect(await page.getByText("Google API key: usually starts with AIza").count()).toBe(1);
+    expect(await page.getByText("OAuth client ID: ends with .apps.googleusercontent.com").count()).toBe(1);
+    expect(await page.getByText("OAuth client secret: typically starts with GOCSPX-").count()).toBe(1);
+
+    // The browser flags the wrong shape before submitting...
+    const apiKey = page.locator("#apiKey");
+    await apiKey.fill(secretLike);
+    expect(await apiKey.evaluate((el: HTMLInputElement) => el.validity.patternMismatch)).toBe(true);
+    // ...and the server refuses it even without the browser check, without echoing the value.
+    await apiKey.evaluate((el: HTMLInputElement) => el.removeAttribute("pattern"));
+    await page.getByRole("button", { name: "Save credentials" }).click();
+    await page.getByText(/looks like an OAuth client secret, not a Google API key/).waitFor();
+    expect(await page.content()).not.toContain(secretLike);
+    expect(await page.getByTestId("setup-step-key-saved").getAttribute("data-state")).toBe("todo");
+
+    // A key in the right shape is saved but not treated as proof that Google accepts it.
+    await page.locator("#apiKey").fill(keyLike);
+    await page.getByRole("button", { name: "Save credentials" }).click();
+    await page.getByText(/Google credentials saved/).waitFor();
+    await page.goto(`${APP}/google/connections?project=${projectId}`);
+    expect(await page.getByTestId("setup-step-key-saved").getAttribute("data-state")).toBe("done");
+    expect(await page.getByTestId("setup-step-key-format").getAttribute("data-state")).toBe("unverified");
+    expect(await page.getByTestId("psi-health").getAttribute("data-state")).toBe("untested");
+    expect(await page.getByText(/Last change: API key added on .+ by E2E Admin/).count()).toBe(1);
+    expect(await page.getByTestId("cloud-credentials-link").getAttribute("href")).toMatch(/^https:\/\/console\.cloud\.google\.com\/apis\/credentials/);
+    expect(await page.content()).not.toContain(keyLike);
+    await snap("google-connections-checklist");
+
+    // Restore: remove the key so later tests see the original state.
+    await page.locator("input[name=removeApiKey]").check();
+    await page.getByRole("button", { name: "Save credentials" }).click();
+    await page.getByText(/Google credentials saved/).waitFor();
+    await page.goto(`${APP}/google/connections?project=${projectId}`);
+    expect(await page.getByTestId("setup-step-key-saved").getAttribute("data-state")).toBe("todo");
   });
 
   it("BUG-10: loading Overview and Issues makes no failing background requests (prefetch is off by design)", async () => {

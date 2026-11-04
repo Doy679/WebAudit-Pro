@@ -110,6 +110,15 @@ export function Delta({ before, after, unit = "", lowerIsBetter = false, noise =
   );
 }
 
+/** PageSpeed states that mean "not working": a rejected request or a saved value that isn't an API key. */
+export const psiProblem = (state: PsiHealth["state"]) => state === "failing" || state === "invalid-format";
+
+/** GQA-04: "Last checked …" and, when older than 30 minutes, the stale hint. */
+export function GscFreshness({ status, className }: { status: GscStatus; className?: string }) {
+  if (!status.freshness) return null;
+  return <span className={cx("text-xs", status.stale ? "font-medium text-sev-med" : "text-slate-500", className)} data-testid="gsc-freshness" data-stale={status.stale ? "1" : "0"}>{status.freshness}</span>;
+}
+
 /** The one Search Console status (BUG-02), rendered the same way on every screen. */
 export function GscStatusNotice({ status, compact = false }: { status: GscStatus; compact?: boolean }) {
   const tone = status.state === "ready" ? "border-green-300 bg-ok-bg text-ok" : status.state === "api-error" ? "border-red-300 bg-sev-high-bg text-sev-high" : "border-amber-300 bg-sev-med-bg text-sev-med";
@@ -118,6 +127,7 @@ export function GscStatusNotice({ status, compact = false }: { status: GscStatus
       <strong>{status.label}.</strong>{" "}
       {!compact && <span className="text-slate-800">{status.detail}</span>}
       {status.action && <> <Link href={status.action.href} className="underline">{status.action.label}</Link></>}
+      {status.freshness && <> <GscFreshness status={status} className="block" /></>}
       {status.technical && (
         <details className="mt-1 text-xs text-slate-700">
           <summary className="cursor-pointer">Technical details (admins)</summary>
@@ -130,12 +140,13 @@ export function GscStatusNotice({ status, compact = false }: { status: GscStatus
 
 /** NEW-01: the one PageSpeed health status, rendered the same way on every screen. Never shown as healthy after a failed live request. */
 export function PsiHealthNotice({ health, compact = false }: { health: PsiHealth; compact?: boolean }) {
-  const tone = health.state === "ok" ? "border-green-300 bg-ok-bg text-ok" : health.state === "failing" ? "border-red-300 bg-sev-high-bg text-sev-high" : "border-amber-300 bg-sev-med-bg text-sev-med";
+  const tone = health.state === "ok" ? "border-green-300 bg-ok-bg text-ok" : psiProblem(health.state) ? "border-red-300 bg-sev-high-bg text-sev-high" : "border-amber-300 bg-sev-med-bg text-sev-med";
   return (
     <div role="status" className={cx("rounded-md border px-3 py-2 text-sm", tone)} data-testid="psi-health" data-state={health.state}>
       <strong>{health.label}.</strong>{" "}
       {!compact && <span className="text-slate-800">{health.detail}</span>}
       {health.action && <> <Link href={health.action.href} className="underline">{health.action.label}</Link></>}
+      {health.cloudAction && <> · <a href={health.cloudAction.href} target="_blank" rel="noopener noreferrer" className="underline" data-testid="psi-cloud-link">{health.cloudAction.label} ↗</a></>}
       {health.technical && (
         <details className="mt-1 text-xs text-slate-700">
           <summary className="cursor-pointer">Technical details (admins)</summary>

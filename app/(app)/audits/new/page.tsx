@@ -43,7 +43,7 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
         categories: s.categories?.length ? s.categories : CATEGORIES.map((c) => c.value),
       },
       hasStandards: !!s.tokens,
-      google: { psiReady: g.apiKeyConfigured, psiWarning: psiHealth.state === "failing" ? psiHealth.label : null, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls, gscLabel: searchConsoleStatus(user, p.id).label },
+      google: { psiReady: g.apiKeyConfigured, psiWarning: psiHealth.state === "failing" || psiHealth.state === "invalid-format" ? psiHealth.label : null, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls, gscLabel: ((s) => `${s.label}${s.freshness ? ` (${s.freshness.replace(/\.$/, "")})` : ""}`)(searchConsoleStatus(user, p.id)) },
     };
   });
   const initial = options.find((o) => o.id === requested) ?? options[0];

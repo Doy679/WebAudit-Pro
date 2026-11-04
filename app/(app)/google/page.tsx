@@ -47,7 +47,10 @@ export default async function GoogleOverviewPage({ searchParams }: { searchParam
               return (
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span>{TASK_LABEL[t.type]}{p.url ? `: ${p.url}` : ""}{p.strategy ? ` (${p.strategy})` : ""}{p.range ? `: ${p.range.startDate} to ${p.range.endDate}` : ""}</span>
-                  <span className="flex items-center gap-2 text-xs text-slate-500">{fmtDate(t.created_at)} <StatusPill status={t.status} /></span>
+                  <span className="flex items-center gap-2 text-xs text-slate-500">{fmtDate(t.created_at)} {t.outcome === "cached"
+                    ? <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700" data-testid="task-cached">Served from cache</span>
+                    : <StatusPill status={t.status} label={t.outcome === "fresh" ? "New Google result" : undefined} />}</span>
+                  {t.outcome === "cached" && t.sourceAt && <span className="w-full text-xs text-slate-500">Served from cache: original Google measurement at {fmtDate(t.sourceAt)}. No request was sent to Google.</span>}
                   {t.error && <span className="w-full text-xs text-sev-high">{t.error}</span>}
                 </li>
               );

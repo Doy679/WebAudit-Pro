@@ -1,6 +1,7 @@
 import { requireUser } from "@/app/lib/session";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { pageSpeedHealth } from "@/server/google/health-status";
+import { GscFreshness, psiProblem } from "@/components/google";
 import { listUsers, ROLE_LABELS, ROLES } from "@/server/auth";
 import { can } from "@/server/permissions";
 import { aiSettings, getSetting } from "@/server/settings";
@@ -104,8 +105,8 @@ export default async function SettingsPage() {
           <div className="space-y-6">
             <Card title="Integrations">
               <p className="text-sm text-slate-600">Google PageSpeed Insights, Chrome UX Report and Search Console credentials and connections.</p>
-              <p className="mt-2 text-sm" data-testid="settings-psi" data-state={psi.state}><strong className={psi.state === "failing" ? "text-sev-high" : undefined}>{psi.label}</strong></p>
-              <p className="mt-1 text-sm" data-testid="settings-gsc" data-state={gsc.state}>Search Console: <strong>{gsc.label}</strong></p>
+              <p className="mt-2 text-sm" data-testid="settings-psi" data-state={psi.state}><strong className={psiProblem(psi.state) ? "text-sev-high" : undefined}>{psi.label}</strong></p>
+              <p className="mt-1 text-sm" data-testid="settings-gsc" data-state={gsc.state}>Search Console: <strong>{gsc.label}</strong> <GscFreshness status={gsc} /></p>
               <a href="/google/connections" className="mt-1 inline-block text-sm text-accent-600 underline">Open Google Connections →</a>
             </Card>
             <Card title="Backup">

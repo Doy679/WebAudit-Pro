@@ -6,6 +6,7 @@ import { workerStatus } from "@/server/worker-status";
 import { googleStatus } from "@/server/google/config";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { pageSpeedHealth } from "@/server/google/health-status";
+import { GscFreshness, psiProblem } from "@/components/google";
 import { can } from "@/server/permissions";
 import { setOnboardingAction } from "@/app/actions";
 import { btn, Card, cx, Empty, fmtDate, Notice, PageHeader, StatusPill } from "@/components/ui";
@@ -129,12 +130,13 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
                 <span><span className="block font-medium text-navy-900">{worker.label}</span><span className="block text-xs text-slate-600">{worker.detail}</span></span>
               </li>
               <li className="flex gap-3" data-testid="dashboard-google">
-                <span className={cx("mt-0.5 rounded-md p-1.5", psi.state === "ok" && gsc.state === "ready" ? "bg-ok-bg text-ok" : psi.state === "failing" || gsc.state === "api-error" ? "bg-sev-high-bg text-sev-high" : "bg-slate-100 text-slate-600")}><Icon name="search" className="h-4 w-4" /></span>
+                <span className={cx("mt-0.5 rounded-md p-1.5", psi.state === "ok" && gsc.state === "ready" ? "bg-ok-bg text-ok" : psiProblem(psi.state) || gsc.state === "api-error" ? "bg-sev-high-bg text-sev-high" : "bg-slate-100 text-slate-600")}><Icon name="search" className="h-4 w-4" /></span>
                 <span>
                   <span className="block font-medium text-navy-900">Google SEO &amp; Performance</span>
                   <span className="block text-xs text-slate-600">
-                    <span className={cx("block", psi.state === "failing" && "font-medium text-sev-high")} data-testid="dashboard-psi" data-state={psi.state}>{psi.label}</span>
+                    <span className={cx("block", psiProblem(psi.state) && "font-medium text-sev-high")} data-testid="dashboard-psi" data-state={psi.state}>{psi.label}</span>
                     <span className={cx("block", gsc.state === "api-error" && "font-medium text-sev-high")} data-testid="dashboard-gsc" data-state={gsc.state}>Search Console: {gsc.label}</span>
+                    <GscFreshness status={gsc} className="block" />
                     {psi.state !== "ok" || gsc.state !== "ready" ? "Audits still work; missing Google data is shown as unavailable, never estimated. " : ""}
                     <Link href="/google/connections" className="text-accent-600 underline">Connections</Link>
                   </span>

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
 import { pageSpeedHealth } from "@/server/google/health-status";
@@ -67,16 +68,18 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
           )}
           {pending.length > 0 && <div className="mb-4"><Notice>{pending.length} request{pending.length === 1 ? "" : "s"} waiting at Google… this page refreshes automatically.</Notice></div>}
 
-          <Card title="Latest results">
+          <Card title="Last successful results">
+            <p className="mb-3 text-xs text-slate-500">The most recent successful Google measurement for each page and device. A newer failed attempt is shown under its row; it never replaces the earlier measurement.</p>
             {latest.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] text-left text-sm" data-testid="psi-table">
                   <thead className="text-xs uppercase text-slate-500">
-                    <tr><th className="py-2 pr-3">Page</th><th className="pr-3">Device</th><th className="pr-3">Perf.</th><th className="pr-3">A11y</th><th className="pr-3">Best pr.</th><th className="pr-3">SEO</th><th className="pr-3">LCP (lab)</th><th className="pr-3">CLS (lab)</th><th className="pr-3">TBT (lab)</th><th className="pr-3">Real users</th><th>Analysed</th></tr>
+                    <tr><th className="py-2 pr-3">Page</th><th className="pr-3">Device</th><th className="pr-3">Perf.</th><th className="pr-3">A11y</th><th className="pr-3">Best pr.</th><th className="pr-3">SEO</th><th className="pr-3">LCP (lab)</th><th className="pr-3">CLS (lab)</th><th className="pr-3">TBT (lab)</th><th className="pr-3">Real users</th><th>Last successful measurement</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {latest.map((r) => (
-                      <tr key={r.id}>
+                      <Fragment key={r.id}>
+                      <tr>
                         <td className="max-w-[16rem] truncate py-2 pr-3"><Link className="text-accent-600 hover:underline" href={`/google/pagespeed?project=${project.id}&id=${r.id}`}>{shortUrl(r.url)}</Link></td>
                         <td className="pr-3 capitalize">{r.strategy}</td>
                         {r.result ? (
@@ -91,8 +94,16 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
                             <td className="pr-3"><CwvBadge category={(r.crux ?? r.result.field)?.overall ?? worst(r.crux ?? r.result.field)} /></td>
                           </>
                         ) : <td colSpan={8} className="pr-3 text-xs text-sev-high">Unavailable: {r.error}</td>}
-                        <td className="text-xs text-slate-500">{fmtDate(r.analysis_ts ?? r.fetched_at)}</td>
+                        <td className="text-xs text-slate-500">{r.result ? fmtDate(r.analysis_ts ?? r.fetched_at) : `Failed ${fmtDate(r.fetched_at)}`}</td>
                       </tr>
+                      {r.newerFailure && (
+                        <tr data-testid="psi-newer-failure">
+                          <td colSpan={11} className="pb-2 text-xs text-sev-high">
+                            Newer attempt failed: {fmtDate(r.newerFailure.at)}{r.newerFailure.kind ? `: ${FAILURE_WORDS[r.newerFailure.kind] ?? r.newerFailure.kind}` : ""}. The result above is the last successful measurement ({fmtDate(r.analysis_ts ?? r.fetched_at)}), not a current live result.
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -104,6 +115,12 @@ export default async function PageSpeedPage({ searchParams }: { searchParams: Pr
     </>
   );
 }
+
+const FAILURE_WORDS: Record<string, string> = {
+  "invalid-format": "saved credential isn't a Google API key", "key-rejected": "API key rejected", "api-disabled": "PageSpeed Insights API not enabled",
+  "key-restricted": "key restrictions block this server", forbidden: "Google refused the request", quota: "quota reached", transient: "Google temporarily unavailable",
+  network: "couldn't reach Google", page: "Google couldn't analyse this page",
+};
 
 const worst = (f: FieldData | null | undefined) => {
   const cats = Object.values(f?.metrics ?? {}).map((m) => m.category);

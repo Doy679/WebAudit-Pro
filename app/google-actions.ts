@@ -21,12 +21,12 @@ async function attempt(fn: () => Promise<ActionState | void> | ActionState | voi
 
 export async function saveGoogleCredentialsAction(_: ActionState, fd: FormData): Promise<ActionState> {
   return attempt(async () => {
-    await requireUser("settings:manage");
+    const user = await requireUser("settings:manage");
     saveGoogleCredentials({
       apiKey: str(fd, "apiKey"), removeApiKey: fd.get("removeApiKey") === "on",
       oauthClientId: str(fd, "oauthClientId"), oauthClientSecret: str(fd, "oauthClientSecret"), removeOauth: fd.get("removeOauth") === "on",
       cruxEnabled: fd.get("cruxEnabled") === "on",
-    });
+    }, user);
     revalidatePath("/google", "layout");
     return { ok: "Google credentials saved (secrets are stored encrypted)." };
   });
@@ -117,6 +117,8 @@ export async function testPageSpeedKeyAction(_: ActionState, fd: FormData): Prom
     const user = await requireUser("settings:manage");
     const r = await testPageSpeedKey(user, str(fd, "projectId"), fd.get("confirm") === "on");
     revalidatePath("/", "layout");
-    return r.ok ? { ok: "PageSpeed key works: Google answered the test request." } : { error: r.message };
+    // GQA-03: a repeat within the cooldown (or while a test runs) gets the earlier result, not a new request.
+    const prefix = r.reused && r.kind !== "busy" ? `No new request sent: a test ran at ${new Date(r.at).toLocaleTimeString("en-US", { timeStyle: "short" })}. Result: ` : "";
+    return r.ok ? { ok: `${prefix}${r.message}` } : { error: `${prefix}${r.message}` };
   });
 }
