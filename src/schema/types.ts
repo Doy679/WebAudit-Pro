@@ -16,7 +16,7 @@ export interface StructuredDataCapture {
 
 export type SdRuleId =
   | "syntax" | "too-large" | "missing-type" | "context" | "required" | "required-one-of" | "recommended"
-  | "type" | "reference" | "duplicate" | "visible-content";
+  | "type" | "reference" | "duplicate" | "visible-content" | "empty";
 
 export interface SdIssue {
   ruleId: SdRuleId;

@@ -77,19 +77,21 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
     metrics: [
       { label: "Performance score (mobile)", value: score(mobile, "performance"), note: "Lighthouse lab, varies run to run" },
       { label: "Performance score (desktop)", value: score(desktop, "performance") },
-      { label: "LCP (mobile, lab)", value: mobile?.result?.lab.lcp?.display ?? null },
-      { label: "CLS (mobile, lab)", value: mobile?.result?.lab.cls?.display ?? null },
+      { label: "LCP (mobile, lab)", value: mobile?.result?.lab?.lcp?.display ?? null },
+      { label: "CLS (mobile, lab)", value: mobile?.result?.lab?.cls?.display ?? null },
       { label: "Real-user Core Web Vitals (mobile)", value: fieldSummary(fieldOf(mobile), "mobile"), note: fieldOf(mobile) ? "Chrome UX Report, p75, 28 days" : "Google has no field data" },
       { label: "Real-user Core Web Vitals (desktop)", value: fieldSummary(fieldOf(desktop), "desktop"), note: fieldOf(desktop) ? "Chrome UX Report, p75, 28 days" : "Google has no field data" },
     ],
     href: `/google/pagespeed?project=${projectId}`,
   } : { key: "performance", title: "Performance", state: "not-run", why: "PageSpeed Insights not run for the start page", metrics: [], source: "Google PageSpeed Insights", href: `/google/pagespeed?project=${projectId}` });
 
-  const sd = run ? get<{ pages: number; items: number; errors: number; warnings: number }>(
-    "SELECT COUNT(*) AS pages, SUM(json_array_length(items_json)) AS items, SUM(errors) AS errors, SUM(warnings) AS warnings FROM structured_data WHERE run_id = ?", run.id) : undefined;
+  // BUG-13: "pages with structured data" counts only pages where at least one item was found.
+  const sd = run ? get<{ checked: number; pages: number; items: number; errors: number; warnings: number }>(
+    `SELECT COUNT(*) AS checked, COALESCE(SUM(json_array_length(items_json) > 0), 0) AS pages, SUM(json_array_length(items_json)) AS items,
+       SUM(errors) AS errors, SUM(warnings) AS warnings FROM structured_data WHERE run_id = ?`, run.id) : undefined;
   sections.push(run && ran("structured-data") ? {
     key: "structured", title: "Structured Data", state: "ok", source: "Internal schema validator", findings: counts(run.id, TYPES.structured),
-    metrics: [{ label: "Pages with structured data", value: sd?.pages ?? 0 }, { label: "Items", value: sd?.items ?? 0 }, { label: "Errors / warnings", value: `${sd?.errors ?? 0} / ${sd?.warnings ?? 0}` }],
+    metrics: [{ label: "Pages with structured data", value: sd?.pages ?? 0 }, { label: "Pages checked", value: sd?.checked ?? 0 }, { label: "Items", value: sd?.items ?? 0 }, { label: "Errors / warnings", value: `${sd?.errors ?? 0} / ${sd?.warnings ?? 0}` }],
     href: `/google/structured-data?project=${projectId}&run=${run.id}`,
   } : { key: "structured", title: "Structured Data", state: "not-run", why: run ? "Category not included in the audit" : "No completed audit", metrics: [], source: "Internal schema validator" });
 

@@ -338,3 +338,18 @@ describe("BUG-06: real-user summary per device", async () => {
     expect(fieldSummary(null, "desktop")).toBeNull();
   });
 });
+
+describe("BUG-13: structured-data page counts", async () => {
+  const { websiteHealth } = await import("../server/health");
+  it("counts only pages that have at least one item", () => {
+    const run = get<{ id: string }>("SELECT run_id AS id FROM issues WHERE type = 'performance' LIMIT 1")!.id;
+    const ins = (url: string, items: unknown[]) => run_(`INSERT INTO structured_data (run_id, project_id, url, items_json, errors, warnings, rules_version, checked_at) VALUES (?, ?, ?, ?, 0, 0, 'v', 't')`, run, projectId, url, JSON.stringify(items));
+    ins("https://capitalhomemortgage.com/a/", [{ types: ["Article"] }]);
+    ins("https://capitalhomemortgage.com/b/", []);
+    ins("https://capitalhomemortgage.com/c/", []);
+    const sd = websiteHealth(admin, projectId, run).sections.find((s) => s.key === "structured")!;
+    expect(sd.metrics.find((m) => m.label === "Pages with structured data")?.value).toBe(1);
+    expect(sd.metrics.find((m) => m.label === "Pages checked")?.value).toBe(3);
+  });
+});
+const run_ = run;

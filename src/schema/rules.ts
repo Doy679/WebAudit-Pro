@@ -3,7 +3,8 @@
 // Only features Google currently documents are included. Deprecated features (HowTo, sitelinks search box)
 // and schema.org types without a Google feature (WebSite, WebPage, Person, Service, …) get no eligibility claim.
 // When Google changes its docs, update these rules and RULES_VERSION together.
-export const RULES_VERSION = "2026-11-03 (Google Search Central structured data docs)";
+// 2026-11-04: one verdict per property (missing / empty / invalid); invalid optional values are warnings (BUG-12).
+export const RULES_VERSION = "2026-11-04 (Google Search Central structured data docs)";
 
 export type ValueKind = "date" | "url" | "number" | "integer" | "text" | "object" | "url-or-object";
 

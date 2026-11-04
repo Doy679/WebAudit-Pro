@@ -67,6 +67,8 @@ function checkKind(kind: ValueKind, v: unknown): string | null {
 }
 
 const has = (n: Node, prop: string) => (n.props[prop] ?? []).some((v) => (isNode(v) ? true : String(v).trim() !== ""));
+/** Present in the markup but only with empty values (e.g. "datePublished": ""). */
+const onlyEmpty = (n: Node, prop: string) => (n.props[prop] ?? []).length > 0 && !has(n, prop);
 const norm = (s: string) => s.toLowerCase().replace(/&amp;/g, "&").replace(/[\s ]+/g, " ").replace(/[“”"'’]/g, "").trim();
 
 function featureIssues(n: Node, rule: FeatureRule, visible: string, path = ""): SdIssue[] {
@@ -75,6 +77,11 @@ function featureIssues(n: Node, rule: FeatureRule, visible: string, path = ""): 
   for (const req of rule.required) {
     const options = req.split("|");
     if (options.some((o) => has(n, o))) continue;
+    // BUG-12: one verdict per property. Present-but-empty is "empty", not "missing" plus "wrong type".
+    if (options.length === 1 && onlyEmpty(n, req)) {
+      issues.push({ ruleId: "empty", severity: "error", property: p(req), message: `Required property "${req}" is empty`, current: '""', expected: `a value for ${req}`, docUrl: rule.docUrl });
+      continue;
+    }
     issues.push({
       ruleId: options.length > 1 ? "required-one-of" : "required", severity: "error", property: p(options.join(" | ")),
       message: options.length > 1 ? `Needs at least one of ${options.join(", ")}` : `Missing required property "${req}"`,
@@ -84,13 +91,20 @@ function featureIssues(n: Node, rule: FeatureRule, visible: string, path = ""): 
   for (const rec of rule.recommended) {
     const options = rec.split("|");
     if (options.some((o) => has(n, o))) continue;
+    const empty = options.find((o) => onlyEmpty(n, o));
+    if (empty) {
+      issues.push({ ruleId: "empty", severity: "warning", property: p(empty), message: `Recommended property "${empty}" is empty`, current: '""', expected: `add a value for ${empty} or remove it`, docUrl: rule.docUrl });
+      continue;
+    }
     issues.push({ ruleId: "recommended", severity: "warning", property: p(options.join(" | ")), message: `Recommended property "${options.join(" or ")}" is missing`, current: "missing", expected: `add ${options.join(" or ")}`, docUrl: rule.docUrl });
   }
   for (const [prop, kind] of Object.entries(rule.valueTypes)) {
+    // Invalid values block eligibility only for required properties; for optional ones Google ignores the value (warning).
+    const requiredProp = rule.required.some((r) => r.split("|").includes(prop));
     for (const v of n.props[prop] ?? []) {
-      if (isRef(v)) continue;
+      if (isRef(v) || (!isNode(v) && String(v).trim() === "")) continue; // empty values already have their own verdict
       const expected = checkKind(kind, v);
-      if (expected) issues.push({ ruleId: "type", severity: "error", property: p(prop), message: `"${prop}" has the wrong type`, current: isNode(v) ? `object (${v.types.join(", ") || "untyped"})` : JSON.stringify(v).slice(0, 120), expected, docUrl: rule.docUrl });
+      if (expected) issues.push({ ruleId: "type", severity: requiredProp ? "error" : "warning", property: p(prop), message: `"${prop}" has the wrong type`, current: isNode(v) ? `object (${v.types.join(", ") || "untyped"})` : JSON.stringify(v).slice(0, 120), expected, docUrl: rule.docUrl });
     }
   }
   if (visible) {
@@ -162,7 +176,7 @@ function referenceIssues(n: Node, ids: Set<string>, path = ""): SdIssue[] {
 function finishItem(item: Omit<SdItem, "status" | "eligibility">): SdItem {
   const errors = item.issues.some((i) => i.severity === "error");
   const invalid = item.issues.some((i) => i.ruleId === "syntax" || i.ruleId === "too-large");
-  const requiredMissing = item.issues.some((i) => i.ruleId === "required" || i.ruleId === "required-one-of" || (i.ruleId === "type" && i.severity === "error"));
+  const requiredMissing = item.issues.some((i) => i.ruleId === "required" || i.ruleId === "required-one-of" || ((i.ruleId === "type" || i.ruleId === "empty") && i.severity === "error"));
   return {
     ...item,
     status: invalid ? "invalid" : errors ? "errors" : item.issues.length ? "warnings" : "valid",

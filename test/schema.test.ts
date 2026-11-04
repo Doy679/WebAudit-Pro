@@ -115,3 +115,35 @@ describe("structured data findings", () => {
     expect(structuredDataIssues(p, result)).toEqual([]);
   });
 });
+
+describe("BUG-12: one verdict per property", () => {
+  const article = (datePublished?: unknown) => validateStructuredData(capture({ jsonld: [ld({
+    "@context": "https://schema.org", "@type": "Article", headline: "Meet Brian", author: { "@type": "Person", name: "Brian" }, image: "https://example.com/a.jpg",
+    dateModified: "2026-10-01", ...(datePublished === undefined ? {} : { datePublished }),
+  })] })).items[0];
+  const about = (item: ReturnType<typeof article>) => item.issues.filter((i) => i.property === "datePublished");
+
+  it("an empty value is reported once, as empty, and doesn't make Article ineligible", () => {
+    const item = article("");
+    expect(about(item)).toHaveLength(1);
+    expect(about(item)[0]).toMatchObject({ ruleId: "empty", severity: "warning", message: expect.stringMatching(/is empty/) });
+    expect(item.eligibility).toBe("candidate"); // Google's Article docs list no required properties
+  });
+
+  it("missing, invalid and correct values each get exactly one coherent verdict", () => {
+    expect(about(article())).toEqual([expect.objectContaining({ ruleId: "recommended", severity: "warning" })]);
+    expect(about(article("last Tuesday"))).toEqual([expect.objectContaining({ ruleId: "type", severity: "warning" })]);
+    expect(article("last Tuesday").eligibility).toBe("candidate");
+    expect(about(article("2026-09-30"))).toEqual([]);
+  });
+
+  it("an invalid value on a required property still blocks eligibility", () => {
+    const r = validateStructuredData(capture({ jsonld: [ld({ "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: "" })] })).items[0];
+    expect(r.issues.filter((i) => i.property === "itemListElement")).toEqual([expect.objectContaining({ ruleId: "empty", severity: "error" })]);
+    expect(r.eligibility).toBe("missing-required");
+  });
+
+  it("cites the versioned rules", () => {
+    expect(RULES_VERSION).toMatch(/^2026-11-04/);
+  });
+});
