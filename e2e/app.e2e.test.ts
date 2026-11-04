@@ -36,7 +36,7 @@ let xlsxHref = "";
 let approvalLink = "";
 
 function startProc(args: string[]) {
-  const env: NodeJS.ProcessEnv = { ...process.env, WEBAUDIT_DATA_DIR: dataDir, WEBAUDIT_TEST_ALLOW_LOOPBACK: "1", WEBAUDIT_APP_URL: APP, PORT: String(PORT), NODE_ENV: "production", WEBAUDIT_WORKER_STALE_MS: "4000" };
+  const env: NodeJS.ProcessEnv = { ...process.env, WEBAUDIT_DATA_DIR: dataDir, WEBAUDIT_TEST_ALLOW_LOOPBACK: "1", WEBAUDIT_APP_URL: APP, PORT: String(PORT), NODE_ENV: "production", WEBAUDIT_WORKER_STALE_MS: "4000", WEBAUDIT_WORKER_HEARTBEAT_MS: "1000" }; // heartbeat well inside the stale window (was 5 s vs 4 s: intermittent "stale")
   const p = spawn(process.execPath, args, { env, stdio: ["ignore", "pipe", "pipe"] });
   p.stdout.on("data", (d: Buffer) => process.env.E2E_VERBOSE && process.stdout.write(d));
   p.stderr.on("data", (d: Buffer) => process.env.E2E_VERBOSE && process.stderr.write(d));

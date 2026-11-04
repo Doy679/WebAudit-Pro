@@ -54,7 +54,7 @@ let currentRun: string | null = null;
 // Heartbeat on its own timer, so long audit phases never make a healthy worker look offline.
 const heartbeat = setInterval(() => {
   try { beat(workerId, "online", currentRun); } catch (e) { log(`heartbeat failed: ${(e as Error).message}`); }
-}, 5000);
+}, Number(process.env.WEBAUDIT_WORKER_HEARTBEAT_MS ?? 5000)); // must stay well below WEBAUDIT_WORKER_STALE_MS
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
