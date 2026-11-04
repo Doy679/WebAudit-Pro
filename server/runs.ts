@@ -269,3 +269,21 @@ export function importResults(
 export function runPages(runId: string) {
   return all<{ url: string; ok: number; status: number; error: string | null }>("SELECT url, ok, status, error FROM run_pages WHERE run_id = ? ORDER BY url", runId);
 }
+
+/**
+ * BUG-24 / UX-17: how long an audit is likely to take, from this installation's own finished audits
+ * (median seconds per page per screen size), as a range rather than a promise.
+ */
+export function estimateAuditDuration(pages: number, viewports: number): { label: string; secondsPerPageView: number; basis: "history" | "default" } {
+  const rates = all<{ s: number }>(
+    `SELECT (julianday(finished_at) - julianday(started_at)) * 86400.0 / (pages_done * json_array_length(json_extract(settings_json, '$.viewports'))) AS s
+     FROM audit_runs WHERE status = 'completed' AND started_at IS NOT NULL AND finished_at IS NOT NULL AND pages_done > 0
+       AND json_array_length(json_extract(settings_json, '$.viewports')) > 0 ORDER BY created_at DESC LIMIT 20`)
+    .map((r) => r.s).filter((s) => s > 0.5 && s < 120).sort((a, b) => a - b);
+  const basis = rates.length ? "history" : "default";
+  const rate = rates.length ? rates[Math.floor(rates.length / 2)] : 9;
+  const mins = (s: number) => Math.max(1, Math.round(s / 60));
+  const total = pages * viewports * rate;
+  const low = mins(total * 0.85), high = mins(total * 1.15);
+  return { label: `about ${low === high ? low : `${low}–${high}`} min`, secondsPerPageView: Math.round(rate * 10) / 10, basis };
+}

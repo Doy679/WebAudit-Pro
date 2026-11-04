@@ -376,3 +376,22 @@ describe("BUG-25: implausible line-height measurements", async () => {
     expect(lineIssues(22, 66)).toHaveLength(0); // 1.57 is fine
   });
 });
+
+describe("BUG-24 / UX-17: audit duration estimate from real history", async () => {
+  const runsMod = await import("../server/runs");
+  it("uses the median observed seconds per page per screen size, with a range", () => {
+    // Two finished audits like the real ones: CHM 20 pages x 5 sizes in 16 m 28 s; RRMH 80 x 5 in 54 m 33 s.
+    const mkRun = (pages: number, seconds: number) => {
+      const id = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/", viewports: [320, 390, 768, 1024, 1440] } as never);
+      run("UPDATE audit_runs SET status = 'completed', started_at = '2026-11-04T01:00:00.000Z', finished_at = ?, pages_done = ? WHERE id = ?",
+        new Date(Date.parse("2026-11-04T01:00:00.000Z") + seconds * 1000).toISOString(), pages, id);
+    };
+    mkRun(20, 988);
+    mkRun(80, 3273);
+    const e = runsMod.estimateAuditDuration(20, 5);
+    expect(e.basis).toBe("history");
+    expect(e.secondsPerPageView).toBeGreaterThan(8);
+    expect(e.secondsPerPageView).toBeLessThan(10);
+    expect(e.label).toMatch(/^about 1[3-7]–1[6-9] min/);
+  });
+});

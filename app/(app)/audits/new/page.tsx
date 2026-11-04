@@ -5,6 +5,7 @@ import { googleStatus } from "@/server/google/config";
 import { projectGoogle } from "@/server/google/service";
 import { workerStatus } from "@/server/worker-status";
 import { searchConsoleStatus } from "@/server/google/gsc-status";
+import { estimateAuditDuration } from "@/server/runs";
 import { startAuditAction } from "@/app/actions";
 import { NewAuditForm, type AuditProjectOption } from "@/components/NewAuditForm";
 import { Card, Empty, PageHeader } from "@/components/ui";
@@ -51,7 +52,8 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
       <PageHeader title="New Audit" subtitle="Choose the website, check the address and press Start Audit. It runs in the background; you can leave this page. Read-only: nothing on the website is changed." />
       <Card className="max-w-3xl">
         {/* key: a different ?project= remounts the form with that project's defaults */}
-        <NewAuditForm key={initial.id} projects={options} initialProjectId={initial.id} worker={{ state: w.state, label: w.label, detail: w.detail }} action={startAuditAction} />
+        <NewAuditForm key={initial.id} projects={options} initialProjectId={initial.id} worker={{ state: w.state, label: w.label, detail: w.detail }} action={startAuditAction}
+          secondsPerPageView={estimateAuditDuration(1, 1).secondsPerPageView} />
       </Card>
     </>
   );

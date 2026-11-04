@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
 import { Card, PageHeader } from "@/components/ui";
+import { estimateAuditDuration } from "@/server/runs";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Help" };
 
@@ -29,20 +32,29 @@ const TERMS: [string, string][] = [
 const PROBLEMS: [string, string][] = [
   ["My audit says “Waiting to start”", "The background worker isn't running. Your audit is saved in the queue. Start the app with npm start (web and worker together) and it begins automatically."],
   ["The URL is rejected", "Each website project only allows its own domain. Check you selected the right website, or add the other site as a new project."],
-  ["Google data says “not configured”", "Nothing is wrong with your audit. An admin can add a Google API key and connect Search Console under Google SEO & Performance → Connections."],
+  ["“Search Console not set up” / “PageSpeed isn’t set up”", "Nothing is wrong with your audit. An admin adds the Google API key and OAuth client under Google SEO & Performance → Google Connections."],
+  ["“Google account not connected”", "Open Google Connections and press Connect Google, using a Google account that has access to the website in Search Console."],
+  ["“Search Console API not enabled in Google Cloud”", "Your Google sign-in works, but the Search Console API is switched off in the Google Cloud project. An admin opens Google Cloud Console → APIs & Services → Library → Google Search Console API → Enable, waits a few minutes, then presses Retry / Test connection in Google Connections. This is not a permissions problem."],
+  ["“No access to the Search Console property”", "The connected Google account can't see this website in Search Console. Ask the property owner to add that Google account in Search Console (Settings → Users and permissions), then press Retry."],
+  ["“No Search Console property selected”", "Open Google Connections and choose the property for this website from the list."],
   ["A report failed", "Your audit data isn't affected. Generate the report again; if it keeps failing, give your administrator the time it happened so they can check the server log."],
   ["I can't see a website or page", "You only see websites you're a member of. Ask an admin or project manager to add you."],
 ];
 
 export default async function HelpPage() {
   await requireUser();
+  // BUG-24: duration from this installation's real audits, not a fixed guess.
+  const est = estimateAuditDuration(20, 5);
+  const steps = STEPS.map((s) => s.title !== "Wait for it to finish" ? s : {
+    ...s, body: `The audit runs in the background, one page at a time, so it doesn't overload the website. Each page takes about ${Math.round(est.secondsPerPageView)} seconds per screen size${est.basis === "history" ? " on this computer (measured from earlier audits)" : ""}, so a 20-page audit at 5 screen sizes takes ${est.label}. New Audit shows an estimate before you start. You can leave the page; progress is saved. The sidebar shows whether the background worker is running.`,
+  });
   return (
     <>
       <PageHeader title="Help & getting started" subtitle="How to go from a website address to a client-approved list of fixes. No technical knowledge needed." />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card title="Step by step">
           <ol className="space-y-4">
-            {STEPS.map((s, n) => (
+            {steps.map((s, n) => (
               <li key={s.title} className="flex gap-3">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-900 text-sm font-semibold text-white" aria-hidden="true">{n + 1}</span>
                 <div>

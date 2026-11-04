@@ -49,11 +49,13 @@ function scopeProblem(p: AuditProjectOption, value: string): string | null {
  * New Audit form. Switching project resets every project-specific field (URL included) to that project's
  * saved defaults; changing other options never touches the URL. The server re-validates everything.
  */
-export function NewAuditForm({ projects, initialProjectId, worker, action }: {
+export function NewAuditForm({ projects, initialProjectId, worker, action, secondsPerPageView = 9 }: {
   projects: AuditProjectOption[];
   initialProjectId: string;
   worker: WorkerInfo;
   action: (s: ActionState, fd: FormData) => Promise<ActionState>;
+  /** Median observed time per page per screen size on this installation (UX-17). */
+  secondsPerPageView?: number;
 }) {
   const [projectId, setProjectId] = useState(initialProjectId);
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
@@ -78,6 +80,10 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
   const blocked = !!urlProblem || !!listProblem || !f.viewports.length || !f.categories.length;
   const [advanced, setAdvanced] = useState(false);
   const google = [f.psiMobile && "PageSpeed mobile", f.psiDesktop && "PageSpeed desktop", f.gscPerformance && "Search Console data", f.gscSitemaps && "Search Console sitemaps", f.inspectMaxUrls > 0 && "URL inspection"].filter(Boolean);
+  const pageCount = f.urls.trim() ? f.urls.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith("#")).length : f.maxPages;
+  const est = Math.max(1, pageCount) * Math.max(1, f.viewports.length) * secondsPerPageView * (f.delayMs / 1000 > 1 ? 1 + (f.delayMs / 1000 - 1) / 9 : 1);
+  const lo = Math.max(1, Math.round((est * 0.85) / 60)), hi = Math.max(1, Math.round((est * 1.15) / 60));
+  const estimate = `estimated time ${lo === hi ? `about ${lo}` : `${lo}–${hi}`} min${f.urls.trim() ? "" : " if all pages are found"}`;
   const summary = `${f.urls.trim() ? "Only the listed pages" : `Up to ${f.maxPages} pages${f.useSitemap ? " (found via the sitemap)" : ""}`} · ${f.viewports.length} screen sizes · ${f.categories.length} of ${CATEGORIES.length} check types · ${google.length ? google.join(", ") : "no Google checks"}`;
   // Problems hidden inside the collapsed section must still be visible next to the Start button.
   const advancedProblem = listProblem ?? (!f.viewports.length ? "Choose at least one screen size under Advanced settings." : !f.categories.length ? "Choose at least one check type under Advanced settings." : null);
@@ -112,6 +118,7 @@ export function NewAuditForm({ projects, initialProjectId, worker, action }: {
         <summary className="cursor-pointer px-3 py-2 text-sm">
           <span className="font-medium text-accent-600">Advanced settings (optional)</span>
           <span className="block text-xs text-slate-600" data-testid="settings-summary">{summary}</span>
+          <span className="block text-xs font-medium text-slate-700" data-testid="audit-estimate">{estimate[0].toUpperCase() + estimate.slice(1)} (an estimate from earlier audits, not a promise)</span>
         </summary>
         <div className="space-y-5 border-t border-slate-100 p-3">
       <p className="text-xs text-slate-600">The defaults come from this project&apos;s saved settings and suit most audits. Change them only if you need to.</p>
