@@ -490,6 +490,35 @@ describe("WebAudit Pro end to end", () => {
     });
   });
 
+  it("BUG-10: navigating every sidebar link and Google tab uses client navigation with no 5xx responses", async () => {
+    const bad: string[] = [];
+    const docs: string[] = [];
+    const onResponse = (r: import("playwright").Response) => {
+      if (r.status() >= 500) bad.push(`${r.status()} ${new URL(r.url()).pathname}${new URL(r.url()).search.slice(0, 10)}`);
+      if (r.request().resourceType() === "document") docs.push(new URL(r.url()).pathname);
+    };
+    page.on("response", onResponse);
+    try {
+      await page.goto(`${APP}/`);
+      await page.waitForTimeout(1500); // let the Overview prefetches finish
+      docs.length = 0;
+      for (const name of ["My Websites", "New Audit", "Audit Runs", "Issues", "Reports", "Client Approvals", "Re-Audit", "Google SEO & Performance", "Settings", "Help", "Overview"]) {
+        await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true }).click();
+        await page.waitForLoadState("networkidle");
+      }
+      await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Google SEO & Performance", exact: true }).click();
+      await page.waitForLoadState("networkidle");
+      for (const tab of ["PageSpeed Insights", "Structured Data", "Search Console Performance", "URL Inspection", "Sitemaps", "SEO History & Reports", "Google Connections", "SEO Overview"]) {
+        await page.getByRole("link", { name: tab, exact: true }).first().click();
+        await page.waitForLoadState("networkidle");
+      }
+    } finally {
+      page.off("response", onResponse);
+    }
+    expect(bad).toEqual([]);
+    expect(docs).toEqual([]); // every click was a client-side navigation, never a full page reload
+  });
+
   describe("UX acceptance (from the real UI)", () => {
     it("UX 1: the dashboard shows the getting-started guide, websites, attention cards and system status; the guide can be hidden", async () => {
       // Admin: every step is done here, so the guide stays out of the way.

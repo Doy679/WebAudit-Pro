@@ -9,6 +9,8 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
+  // A separate build folder for test/QA servers, so they never overwrite the build the running app serves.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   devIndicators: false,
   poweredByHeader: false,
   // The worker owns Playwright and ExcelJS; keep them out of the web bundle if ever imported.

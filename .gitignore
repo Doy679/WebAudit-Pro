@@ -10,3 +10,4 @@ next-env.d.ts
 *.tsbuildinfo
 test-results/
 .tmp/
+.next-qa/
