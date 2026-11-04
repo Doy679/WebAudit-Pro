@@ -308,6 +308,10 @@ describe("WebAudit Pro end to end", () => {
     const json = await (await page.request.get(`${APP}/api/runs/${id}`)).json();
     expect(json.status).toBe("cancelled");
     expect(json.pagesDone).toBeLessThan(2);
+    // BUG-21: the detail page uses the run's own times: queued, started (it did start), cancelled; elapsed = run time.
+    await page.reload();
+    expect(await page.getByRole("heading", { level: 1 }).locator("xpath=..").innerText()).toMatch(/queued .* started .* cancelled /);
+    expect(await page.getByTestId("elapsed").innerText()).toMatch(/^Ran for /);
   });
 
   it("Test 13: users outside a project and anonymous visitors cannot see its data", async () => {

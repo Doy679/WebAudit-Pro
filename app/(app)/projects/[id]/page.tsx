@@ -2,7 +2,7 @@ import Link from "@/components/AppLink";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
 import { getProject, projectMembers } from "@/server/projects";
-import { listRuns } from "@/server/runs";
+import { cancellationNote, listRuns } from "@/server/runs";
 import { listUsers, ROLE_LABELS } from "@/server/auth";
 import { can } from "@/server/permissions";
 import { addMemberAction, removeMemberAction, saveStandardsAction, updateProjectAction } from "@/app/actions";
@@ -53,9 +53,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <ul className="divide-y divide-slate-100">
               {runs.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-                  <Link href={`/audits/${r.id}`} className="text-navy-800 hover:underline">{fmtDate(r.created_at)}</Link>
-                  <span className="flex items-center gap-2 text-xs text-slate-600">
-                    {r.pages_done} pages · {r.findings} findings <StatusPill status={r.status} />
+                  <Link href={`/audits/${r.id}`} className="text-navy-800 hover:underline">Queued {fmtDate(r.created_at)}</Link>
+                  <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    {/* BUG-21: same wording as Audit Runs; cancelled runs say what happened instead of "0 findings". */}
+                    {r.status === "completed" ? <>{r.pages_done}/{r.pages_total || "?"} pages · {r.findings} findings</> : r.status === "cancelled" ? <span>{cancellationNote(r)}</span> : <>{r.pages_done}/{r.pages_total || "?"} pages</>}
+                    <StatusPill status={r.status} />
                   </span>
                 </li>
               ))}

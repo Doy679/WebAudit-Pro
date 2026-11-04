@@ -92,7 +92,9 @@ export function RunProgress({ runId, initial }: { runId: string; initial: Progre
             {data.cancelRequested && ACTIVE.has(data.status) && " · cancelling after the current page"}
           </span>
         </div>
-        <span className="tabular text-sm text-slate-500">Elapsed {elapsed(data.startedAt ?? data.createdAt, data.finishedAt)}</span>
+        {data.startedAt
+          ? <span className="tabular text-sm text-slate-500" data-testid="elapsed">{data.finishedAt ? "Ran for" : "Elapsed"} {elapsed(data.startedAt, data.finishedAt)}</span>
+          : <span className="text-sm text-slate-500" data-testid="elapsed">{data.status === "pending" ? "Waiting to start" : "Never started"}</span>}
       </div>
 
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Audit progress">

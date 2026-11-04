@@ -45,7 +45,7 @@ export default async function AuditPage({ params }: { params: Promise<{ id: stri
     <>
       <PageHeader
         title={`Audit: ${project.name}`}
-        subtitle={<>{r.start_url} · started {fmtDate(r.created_at)} · {r.settings.viewports?.join(", ")}px · max {r.settings.maxPages} pages</>}
+        subtitle={<>{r.start_url} · queued {fmtDate(r.created_at)} · {r.started_at ? <>started {fmtDate(r.started_at)}</> : r.status === "pending" ? "not started yet" : "never started"}{r.finished_at ? <> · {r.status === "cancelled" ? "cancelled" : "finished"} {fmtDate(r.finished_at)}</> : null} · {r.settings.viewports?.join(", ")}px · max {r.settings.maxPages} pages</>}
         actions={
           <>
             {active && can(user, "audit:cancel") && !r.cancel_requested && (
