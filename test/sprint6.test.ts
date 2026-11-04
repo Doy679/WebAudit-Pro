@@ -201,3 +201,67 @@ describe("BUG-11: project-aware references for quoted IDs", async () => {
     expect(issueReference("RedRiverModularHomes", "CNT-0001")).toBe("RRMH-CNT-0001");
   });
 });
+
+describe("UX-03: review queue", async () => {
+  const runsMod = await import("../server/runs");
+  const issuesMod = await import("../server/issues");
+  let runId = "";
+  beforeAll(() => {
+    runId = runsMod.insertRun(admin, projectId, { startUrl: "https://capitalhomemortgage.com/" } as never);
+    const mk = (n: number) => ({
+      id: `TAP-${String(n).padStart(4, "0")}`, type: "buttons", rule: n <= 3 ? "tap-target-small" : `rule-${n}`, kind: n % 5 === 0 ? "recommendation" : "confirmed",
+      severity: n <= 8 ? "high" : "low", confidence: 0.9, title: `Finding ${n}`, fingerprint: `q${String(n).padStart(15, "0")}`,
+      location: { url: "https://capitalhomemortgage.com/", pages: ["https://capitalhomemortgage.com/"], viewports: [390], selector: `.f${n}` },
+      instanceCount: 1, occurrences: [], recommendation: "x", current: n <= 3 ? "20×20px" : `v${n}`, proposed: "44×44px",
+      evidence: { screenshots: [], boxes: [], capturedAt: "t" }, review: { status: "pending", notes: "", reviewer: null },
+    });
+    runsMod.importResults(runId, Array.from({ length: 24 }, (_, k) => mk(k + 1)) as never, []);
+    runsMod.finishRun(runId, "completed");
+  });
+
+  it("shows one unreviewed finding at a time, highest priority first, with progress", () => {
+    const q = issuesMod.reviewQueue(admin, { runId }, 0)!;
+    expect(q.item.severity).toBe("high");
+    expect(q).toMatchObject({ remaining: 24, position: 0, reviewed: 0, total: 24 });
+  });
+
+  it("a reviewer classifies 20 findings without leaving the queue; progress persists; undo works", () => {
+    for (let n = 0; n < 20; n++) {
+      const q = issuesMod.reviewQueue(admin, { runId }, 0)!;
+      issuesMod.reviewIssue(admin, q.item.id, { action: n % 4 === 0 ? "false_positive" : q.item.kind === "recommendation" ? "approve" : "confirm" });
+    }
+    const after = issuesMod.reviewQueue(admin, { runId }, 0)!;
+    expect(after).toMatchObject({ remaining: 4, reviewed: 20, total: 24 });
+    // Undo the last decision: the finding goes back into the queue.
+    const last = all<{ id: string }>("SELECT id FROM issues WHERE run_id = ? AND verification_status = 'confirmed' ORDER BY updated_at DESC LIMIT 1", runId)[0].id;
+    issuesMod.reviewIssue(admin, last, { action: "unverify" });
+    expect(issuesMod.reviewQueue(admin, { runId }, 0)!.remaining).toBe(5);
+  });
+
+  it("offers grouped review only for genuinely equivalent findings (same rule and same measured value)", () => {
+    const tapIds = all<{ id: string }>("SELECT id FROM issues WHERE run_id = ? AND rule = 'tap-target-small'", runId).map((r) => r.id);
+    run(`UPDATE issues SET verification_status = 'unverified', review_status = 'pending' WHERE id IN (${tapIds.map(() => "?").join(",")})`, ...tapIds);
+    const tap = issuesMod.reviewQueue(admin, { runId, q: "Finding 1" }, 0)!;
+    expect(tap.item.rule).toBe("tap-target-small");
+    expect(tap.similar).toHaveLength(2);
+    expect(tap.similar).not.toContain(tap.item.id);
+  });
+
+  it("only reviewers can use the queue's actions", () => {
+    const dev = auth.createUser({ email: "dev@example.com", name: "Dev", password: "correct horse battery", role: "developer" });
+    projects.addMember(admin, projectId, dev.id);
+    const q = issuesMod.reviewQueue(admin, { runId }, 0)!;
+    expect(() => issuesMod.reviewIssue(dev, q.item.id, { action: "confirm" })).toThrow();
+  });
+});
+
+describe("UX-02: one clear status vocabulary (display only)", async () => {
+  const { statusWords } = await import("../server/issues");
+  it("never shows 'Confirmed' next to 'Unverified'", () => {
+    const w = statusWords({ kind: "confirmed", verification_status: "unverified", review_status: "pending", implementation_status: "todo", client_decision: null });
+    expect(w).toEqual({ detected: "Measured problem", team: "Not reviewed yet", client: "No client decision", fix: "Not fixed yet" });
+    expect(statusWords({ kind: "recommendation", verification_status: "unverified", review_status: "approved", implementation_status: "done", client_decision: "approved" }))
+      .toEqual({ detected: "Recommendation", team: "Approved by your team", client: "Client approved", fix: "Fixed" });
+    expect(statusWords({ kind: "needs-review", verification_status: "false_positive", review_status: "pending", implementation_status: "todo", client_decision: null }).team).toBe("False positive (not a real problem)");
+  });
+});

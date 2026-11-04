@@ -22,8 +22,9 @@ const ITEMS = [
 const isActive = (path: string, href: string) =>
   href === "/" ? path === "/" : href === "/audits" ? path === "/audits" || /^\/audits\/(?!new)/.test(path) : path.startsWith(href);
 
-export function Nav({ userName, roleLabel, logout, worker }: { userName: string; roleLabel: string; logout: () => Promise<void>; worker: { state: string; label: string } }) {
+export function Nav({ userName, roleLabel, logout, worker, canReview = false }: { userName: string; roleLabel: string; logout: () => Promise<void>; worker: { state: string; label: string }; canReview?: boolean }) {
   const path = usePathname();
+  const items = canReview ? [...ITEMS.slice(0, 5), { href: "/review", label: "Review Queue" }, ...ITEMS.slice(5)] : ITEMS;
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -44,7 +45,7 @@ export function Nav({ userName, roleLabel, logout, worker }: { userName: string;
         </div>
         <nav aria-label="Main" className="flex-1 px-3 py-2">
           <ul className="space-y-0.5">
-            {ITEMS.map((item) => (
+            {items.map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}

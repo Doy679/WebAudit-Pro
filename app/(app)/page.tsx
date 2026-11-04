@@ -80,7 +80,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
       <h2 className="sr-only">Needs attention</h2>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Attention icon="alert" label="High-priority findings" value={s.highPriority} help="Fix these first" href="/issues?quick=high" tone="high" />
-        <Attention icon="eye" label="Needs your review" value={s.needsReview} help="Possible problems to confirm or dismiss" href="/issues?quick=review" />
+        <Attention icon="eye" label="Needs your review" value={s.needsReview} help="Possible problems to confirm or dismiss" href="/review" />
         <Attention icon="users" label="Awaiting client decision" value={s.awaitingClient} help={`${s.pendingApprovals} open approval link${s.pendingApprovals === 1 ? "" : "s"}`} href="/issues?quick=client" />
         <Attention icon="file" label="Reports ready" value={s.reportsReady} help="Excel and PDF downloads" href="/reports" />
       </div>

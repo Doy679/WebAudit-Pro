@@ -201,7 +201,7 @@ function reviewFromForm(fd: FormData): ReviewAction {
     case "priority": return { action, priority: (str(fd, "priority") || null) as "high" | "medium" | "low" | null, note };
     case "implementation": return { action, status: str(fd, "status") as "todo" | "in_progress" | "done" | "wont_fix", note };
     case "note": return { action, note: note ?? "" };
-    case "confirm": case "false_positive": case "unverify": case "approve": case "request_revision": case "reject":
+    case "confirm": case "false_positive": case "unverify": case "approve": case "request_revision": case "reject": case "reopen":
       return { action, note };
     default: throw new Error("Unknown review action.");
   }
@@ -407,4 +407,37 @@ export async function setUserRoleAction(_: ActionState, fd: FormData): Promise<A
     revalidatePath("/settings");
     return { ok: "Role changed. The user was signed out so the new permissions apply at their next sign-in." };
   });
+}
+
+// ---- Review queue (UX-03) ----
+
+const QUEUE_PARAMS = ["project", "run", "severity", "quick", "type", "types", "q"];
+const queueUrl = (fd: FormData, extra: Record<string, string>) => {
+  const q = new URLSearchParams();
+  for (const k of QUEUE_PARAMS) { const v = str(fd, `f_${k}`); if (v) q.set(k, v); }
+  for (const [k, v] of Object.entries(extra)) if (v) q.set(k, v);
+  return `/review?${q.toString()}`;
+};
+
+/** One decision from the review queue, optionally applied to genuinely equivalent findings, then the next finding. */
+export async function reviewQueueAction(fd: FormData) {
+  const user = await requireUser("issue:review");
+  const id = str(fd, "issueId");
+  const action = reviewFromForm(fd);
+  reviewIssue(user, id, action);
+  let applied = 1;
+  if (fd.get("applySimilar") === "on" && action.action !== "note") {
+    const ids = fd.getAll("similar").map(String).filter(Boolean).slice(0, 500);
+    if (ids.length) applied += bulkReview(user, ids, action);
+  }
+  revalidatePath("/issues");
+  redirect(queueUrl(fd, { pos: str(fd, "pos"), last: id, did: action.action, n: String(applied) }));
+}
+
+export async function undoReviewAction(fd: FormData) {
+  const user = await requireUser("issue:review");
+  const did = str(fd, "did");
+  reviewIssue(user, str(fd, "last"), { action: ["approve", "request_revision", "reject"].includes(did) ? "reopen" : "unverify", note: "Undone from the review queue" });
+  revalidatePath("/issues");
+  redirect(queueUrl(fd, { pos: str(fd, "pos"), undone: "1" }));
 }

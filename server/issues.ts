@@ -18,6 +18,8 @@ export interface IssueFilters {
   assignee?: string; // user id or "none"
   provider?: string;
   quick?: string;
+  /** Only findings nobody has reviewed yet (review queue). */
+  unreviewed?: boolean;
   minConfidence?: number;
   q?: string;
   sort?: "severity" | "confidence" | "code" | "page" | "updated";
@@ -147,6 +149,8 @@ function issueWhere(user: User, f: IssueFilters): { whereSql: string; params: un
   if (f.viewport) { where.push(`EXISTS (SELECT 1 FROM json_each(${jsonArray("i.viewports_json")}) WHERE value = ?)`); params.push(f.viewport); }
   if (f.assignee === "none") where.push("i.assignee_id IS NULL");
   else eq("i.assignee_id", f.assignee);
+  // Review queue: findings nobody has reviewed yet (neither verified/dismissed nor approved/rejected).
+  if (f.unreviewed) where.push("i.verification_status = 'unverified' AND i.review_status = 'pending'");
   const quick = QUICK_SQL[f.quick as keyof typeof QUICK_SQL];
   if (quick) where.push(quick);
   if (f.minConfidence) { where.push("i.confidence >= ?"); params.push(f.minConfidence); }
@@ -210,14 +214,15 @@ export function getIssue(user: User, id: string): IssueDetail {
 }
 
 export type ReviewAction =
-  | { action: "confirm" | "false_positive" | "unverify" | "approve" | "request_revision" | "reject"; note?: string }
+  | { action: "confirm" | "false_positive" | "unverify" | "approve" | "request_revision" | "reject" | "reopen"; note?: string }
   | { action: "assign"; assigneeId: string | null; note?: string }
   | { action: "priority"; priority: "high" | "medium" | "low" | null; note?: string }
   | { action: "note"; note: string }
   | { action: "implementation"; status: "todo" | "in_progress" | "done" | "wont_fix"; note?: string };
 
 const VERIFY: Record<string, string> = { confirm: "confirmed", false_positive: "false_positive", unverify: "unverified" };
-const REVIEW: Record<string, string> = { approve: "approved", request_revision: "revision_requested", reject: "rejected" };
+// "reopen" undoes an approve / revision / reject decision from the review queue (UX-03).
+const REVIEW: Record<string, string> = { approve: "approved", request_revision: "revision_requested", reject: "rejected", reopen: "pending" };
 
 function logEvent(issueId: string, user: User, action: string, from: string | null, to: string | null, note?: string) {
   run(`INSERT INTO issue_events (id, issue_id, user_id, actor_label, action, from_value, to_value, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -358,3 +363,47 @@ export function projectCode(name: string): string {
   return (code || "WEB").toUpperCase().slice(0, 6);
 }
 export const issueReference = (projectName: string, code: string) => `${projectCode(projectName)}-${code}`;
+
+export interface ReviewQueueItem {
+  item: IssueDetail;
+  /** 0-based position among the findings still to review (with the same filters). */
+  position: number;
+  remaining: number;
+  reviewed: number;
+  total: number;
+  /** Other unreviewed findings in the same audit with the same rule and the same measured value (safe to review together). */
+  similar: string[];
+}
+
+/** UX-03: one unreviewed finding at a time, highest priority first, plus progress for the same filters. */
+export function reviewQueue(user: User, f: IssueFilters, position: number): ReviewQueueItem | null {
+  const scope = { ...f, page: 1, pageSize: 1 };
+  const remaining = listIssues(user, { ...scope, unreviewed: true }).total;
+  if (!remaining) return null;
+  const pos = Math.min(Math.max(Math.floor(position) || 0, 0), remaining - 1);
+  const row = listIssues(user, { ...scope, unreviewed: true, page: pos + 1, sort: f.sort ?? "severity" }).rows[0];
+  const item = getIssue(user, row.id);
+  const total = listIssues(user, { ...scope, unreviewed: false }).total;
+  const similar = all<{ id: string }>(
+    `SELECT id FROM issues WHERE run_id = ? AND rule = ? AND current_value IS ? AND id != ? AND verification_status = 'unverified' AND review_status = 'pending'`,
+    item.run_id, item.rule, item.current_value, item.id).map((r) => r.id);
+  return { item, position: pos, remaining, reviewed: total - remaining, total, similar };
+}
+
+/**
+ * UX-02: plain words for a finding's four separate statuses, so "Confirmed" never appears next to "Unverified".
+ * Display only: stored values, exports and client links keep their existing terms.
+ */
+export function statusWords(i: Pick<IssueRow, "kind" | "verification_status" | "review_status" | "implementation_status" | "client_decision">) {
+  const detected = i.kind === "confirmed" ? "Measured problem" : i.kind === "recommendation" ? "Recommendation" : "Possible problem";
+  const team = i.verification_status === "false_positive" ? "False positive (not a real problem)"
+    : i.verification_status === "confirmed" ? "Accepted by your team"
+    : i.review_status === "approved" ? "Approved by your team"
+    : i.review_status === "revision_requested" ? "Revision requested"
+    : i.review_status === "rejected" ? "Rejected by your team"
+    : "Not reviewed yet";
+  const client = i.client_decision === "approved" ? "Client approved" : i.client_decision === "rejected" ? "Client rejected"
+    : i.client_decision === "revision_requested" ? "Client asked for changes" : "No client decision";
+  const fix = { todo: "Not fixed yet", in_progress: "Fix in progress", done: "Fixed", wont_fix: "Won't fix" }[i.implementation_status] ?? i.implementation_status;
+  return { detected, team, client, fix };
+}

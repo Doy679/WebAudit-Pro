@@ -1,7 +1,7 @@
 import Link from "@/components/AppLink";
 import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
-import { getIssue, issueReference, reviewActionsFor } from "@/server/issues";
+import { getIssue, issueReference, reviewActionsFor, statusWords } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
 import { can } from "@/server/permissions";
 import { aiSettings } from "@/server/settings";
@@ -69,6 +69,7 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
     boxes: i.occurrences.filter((o) => o.url === i.url && o.viewport === s.viewport).flatMap((o) => o.boxes as Shot["boxes"]).slice(0, 20),
   }));
   const plain = explainIssue(i);
+  const words = statusWords(i); // UX-02: display words only; stored values and exports are unchanged
   const scope = cwvDataScope(i.id); // BUG-05: page-level or whole-website real-user data
   // Only known filter parameters are carried back to the list.
   const back = new URLSearchParams([...new URLSearchParams(from ?? "")].filter(([k]) => FILTER_PARAMS.includes(k))).toString();
@@ -111,14 +112,16 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
         </dl>
       </section>
 
+      <dl className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" data-testid="status-words">
+        <SeverityBadge severity={i.severity} />
+        <div className="flex gap-1"><dt className="text-slate-500">Detected as:</dt><dd className="font-medium text-slate-800">{words.detected} ({Math.round(i.confidence * 100)}% confidence)</dd></div>
+        <div className="flex gap-1"><dt className="text-slate-500">Team review:</dt><dd className="font-medium text-slate-800">{words.team}</dd></div>
+        <div className="flex gap-1"><dt className="text-slate-500">Client:</dt><dd className="font-medium text-slate-800">{words.client}</dd></div>
+        <div className="flex gap-1"><dt className="text-slate-500">Fix:</dt><dd className="font-medium text-slate-800">{words.fix}</dd></div>
+      </dl>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SeverityBadge severity={i.severity} /><KindBadge kind={i.kind} />
-        <span className="text-xs text-slate-600">Confidence {Math.round(i.confidence * 100)}%</span>
-        <span className="text-xs text-slate-500">Verification</span><StatusPill status={i.verification_status} />
-        <span className="text-xs text-slate-500">Review</span><StatusPill status={i.review_status} />
-        <span className="text-xs text-slate-500">Implementation</span><StatusPill status={i.implementation_status} />
         {i.priority && <span className="text-xs text-slate-600">Priority: <strong className="capitalize">{i.priority}</strong></span>}
-        {i.client_decision && <span className="text-xs text-slate-600">Client: <strong>{STATUS_LABEL[i.client_decision] ?? i.client_decision}</strong></span>}
+        {reviewer && words.team === "Not reviewed yet" && <Link href={`/review?run=${i.run_id}`} className="text-xs text-accent-600 underline">Review findings one by one in the review queue</Link>}
       </div>
 
       {i.shared_template ? (

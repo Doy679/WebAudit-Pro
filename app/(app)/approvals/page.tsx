@@ -50,7 +50,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
             <div className="space-y-2 text-sm text-slate-700" data-testid="approval-blocked">
               <p><strong>0 of {review?.all ?? 0}</strong> findings in this audit are ready to send. Only findings your team has reviewed can go to a client: confirm real problems, or approve recommendations.</p>
               {unreviewedHigh > 0 && (
-                <p><Link href={`/issues?run=${selected.id}&severity=high&verification=unverified`} className="font-medium text-accent-600 underline">Review the {unreviewedHigh} high-priority findings first →</Link></p>
+                <p><Link href={`/review?run=${selected.id}&severity=high`} className="font-medium text-accent-600 underline">Review the {unreviewedHigh} high-priority findings first, one by one →</Link></p>
               )}
               <p><Link href={`/issues?run=${selected.id}&verification=unverified`} className="text-accent-600 underline">See all findings not reviewed yet</Link></p>
             </div>

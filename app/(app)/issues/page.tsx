@@ -1,6 +1,6 @@
 import Link from "@/components/AppLink";
 import { requireUser } from "@/app/lib/session";
-import { filterOptions, issueReference, listIssues, quickFilterCounts } from "@/server/issues";
+import { filterOptions, issueReference, listIssues, quickFilterCounts, statusWords } from "@/server/issues";
 import { parseIssueSearchParams, QUICK_FILTERS } from "@/server/issue-filters";
 import { listViews } from "@/server/saved-views";
 import { explainIssue } from "@/server/explain";
@@ -67,6 +67,13 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
         subtitle={<>Problems found by your audits{sp.run ? " (selected audit)" : ", from each website's latest audit"}. A problem repeated on many pages is listed once. Open any issue for a plain-language explanation, screenshot and recommended fix.</>}
       />
 
+      {reviewer && (
+        <p className="mb-3 text-sm">
+          <Link href={`/review?${new URLSearchParams(Object.entries({ run: filters.runId, project: filters.projectId, severity: filters.severity }).filter(([, v]) => v) as [string, string][]).toString()}`}
+            className={btn.primary} data-testid="start-review">Review these one by one</Link>
+          <span className="ml-2 text-slate-600">Opens the review queue: one finding at a time, highest priority first.</span>
+        </p>
+      )}
       <nav aria-label="Quick filters" className="mb-3 flex flex-wrap gap-1.5" data-testid="quick-filters">
         {QUICK_FILTERS.map((q) => (
           <Link key={q.key} href={qs({ quick: q.key === "all" ? undefined : q.key, page: undefined })} aria-current={quick === q.key ? "page" : undefined}
@@ -208,9 +215,8 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
                     <td className="max-w-[12rem] truncate px-3 py-2 text-xs">{shortUrl(i.url)}</td>
                     <td className="px-3 py-2 text-xs">{i.viewports.join(", ")}</td>
                     <td className="space-y-1 px-3 py-2">
-                      <StatusPill status={i.verification_status} />{" "}
-                      <StatusPill status={i.review_status} />
-                      {i.client_decision && <div className="text-xs text-slate-500">Client: {i.client_decision.replace("_", " ")}</div>}
+                      <span className="block text-xs font-medium text-slate-800">{statusWords(i).team}</span>
+                      {i.client_decision && <span className="block text-xs text-slate-500">{statusWords(i).client}</span>}
                     </td>
                     <td className="px-3 py-2 text-xs">{i.assignee_name ?? "–"}</td>
                   </tr>

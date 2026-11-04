@@ -534,7 +534,7 @@ describe("WebAudit Pro end to end", () => {
       await page.goto(`${APP}/`);
       await page.waitForTimeout(1500); // let the Overview prefetches finish
       docs.length = 0;
-      for (const name of ["My Websites", "New Audit", "Audit Runs", "Issues", "Reports", "Client Approvals", "Re-Audit", "Google SEO & Performance", "Settings", "Help", "Overview"]) {
+      for (const name of ["My Websites", "New Audit", "Audit Runs", "Issues", "Review Queue", "Reports", "Client Approvals", "Re-Audit", "Google SEO & Performance", "Settings", "Help", "Overview"]) {
         await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true }).click();
         await page.waitForLoadState("networkidle");
       }
@@ -662,6 +662,33 @@ describe("WebAudit Pro end to end", () => {
       expect(await page.getByRole("button", { name: "Generate PDF" }).isDisabled()).toBe(total === 0);
     });
 
+    it("UX-03: a reviewer classifies 20 findings in the review queue without going back to the Issues list", async () => {
+      const unreviewed = () => q<{ n: number }>("SELECT COUNT(*) AS n FROM issues WHERE run_id = ? AND verification_status = 'unverified' AND review_status = 'pending'", runId)[0].n;
+      const start = unreviewed();
+      const target = Math.min(20, start);
+      expect(target).toBeGreaterThan(0);
+      const visited: string[] = [];
+      page.on("framenavigated", (f) => { if (f === page.mainFrame()) visited.push(new URL(f.url()).pathname); });
+      await page.goto(`${APP}/review?run=${runId}`);
+      for (let n = 0; n < target; n++) {
+        const item = page.getByTestId("queue-item");
+        await item.waitFor();
+        const id = await item.getAttribute("data-issue");
+        await page.keyboard.press(n % 5 === 4 ? "f" : "a"); // A = accept / approve, F = false positive
+        await page.waitForFunction((prev) => !document.querySelector(`[data-issue="${prev}"]`), id);
+      }
+      page.removeAllListeners("framenavigated");
+      expect(unreviewed()).toBe(start - target);
+      expect(visited.filter((p) => p.startsWith("/issues"))).toEqual([]);
+      // Progress persists across a reload, and the last decision can be undone.
+      await page.reload();
+      const total = q<{ n: number }>("SELECT COUNT(*) AS n FROM issues WHERE run_id = ?", runId)[0].n;
+      if (await page.getByTestId("review-progress").count()) expect(await page.getByTestId("review-progress").innerText()).toContain(`${total - unreviewed()} of ${total} reviewed`);
+      await page.getByRole("button", { name: "Undo" }).click();
+      await page.getByText("Undone. The finding is back in the queue.").waitFor();
+      expect(unreviewed()).toBe(start - target + 1);
+    });
+
     it("UX 4: Help explains the workflow and terms; New Audit keeps advanced settings out of the way", async () => {
       await page.goto(`${APP}/help`);
       expect(await page.getByRole("heading", { name: "Help & getting started" }).count()).toBe(1);
@@ -682,7 +709,7 @@ describe("WebAudit Pro end to end", () => {
       "/", "/projects", `/projects/${projectId}`, `/audits/new?project=${projectId}`, "/audits", `/audits/${runId}`,
       "/issues", `/issues/${issueId}`, `/reports?run=${runId}`, "/approvals", `/reaudit?project=${projectId}`,
       `/google?project=${projectId}`, `/google/pagespeed?project=${projectId}`, `/google/structured-data?project=${projectId}`,
-      `/google/connections?project=${projectId}`, "/settings", "/help",
+      `/google/connections?project=${projectId}`, "/settings", "/help", `/review?run=${runId}`,
     ];
     const overflow: string[] = [];
     const a11y: { route: string; id: string; impact: string; nodes: number; help: string }[] = [];
