@@ -112,13 +112,15 @@ export default async function IssuePage({ params, searchParams }: { params: Prom
         </dl>
       </section>
 
-      <dl className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" data-testid="status-words">
-        <SeverityBadge severity={i.severity} />
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+      <SeverityBadge severity={i.severity} />
+      <dl className="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="status-words">
         <div className="flex gap-1"><dt className="text-slate-500">Detected as:</dt><dd className="font-medium text-slate-800">{words.detected} ({Math.round(i.confidence * 100)}% confidence)</dd></div>
         <div className="flex gap-1"><dt className="text-slate-500">Team review:</dt><dd className="font-medium text-slate-800">{words.team}</dd></div>
         <div className="flex gap-1"><dt className="text-slate-500">Client:</dt><dd className="font-medium text-slate-800">{words.client}</dd></div>
         <div className="flex gap-1"><dt className="text-slate-500">Fix:</dt><dd className="font-medium text-slate-800">{words.fix}</dd></div>
       </dl>
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {i.priority && <span className="text-xs text-slate-600">Priority: <strong className="capitalize">{i.priority}</strong></span>}
         {reviewer && words.team === "Not reviewed yet" && <Link href={`/review?run=${i.run_id}`} className="text-xs text-accent-600 underline">Review findings one by one in the review queue</Link>}

@@ -374,7 +374,9 @@ describe("WebAudit Pro end to end", () => {
     expect(await page.getByText("Article: Not eligible").count()).toBe(0);
     expect(await page.getByTestId("sd-rules-version").first().innerText()).toBe("Checked with rules 2026-11-04");
     // UX-12: summary by type, errors-only filter, collapsible pages.
-    expect(await page.getByTestId("sd-summary").innerText()).toMatch(/Article[\s\S]*Event/);
+    const summary = await page.getByTestId("sd-summary").innerText(); // sorted by errors, so order isn't fixed
+    expect(summary).toContain("Article");
+    expect(summary).toContain("Event");
     const allPages = await page.getByTestId("sd-page").count();
     await page.getByTestId("sd-errors-only").click();
     await page.waitForURL(/only=errors/);
