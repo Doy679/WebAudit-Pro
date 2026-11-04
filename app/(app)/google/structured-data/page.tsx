@@ -18,7 +18,7 @@ const ELIGIBILITY = {
   invalid: "Cannot be evaluated",
 } as const;
 
-export default async function StructuredDataPage({ searchParams }: { searchParams: Promise<{ project?: string; run?: string }> }) {
+export default async function StructuredDataPage({ searchParams }: { searchParams: Promise<{ project?: string; run?: string; only?: string }> }) {
   const user = await requireUser();
   const sp = await searchParams;
   const { projects, project } = selectProject(user, sp.project);
@@ -27,6 +27,26 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
   const runRow = runs.find((r) => r.id === sp.run) ?? runs[0];
   const pages = runRow ? structuredData(user, runRow.id) : [];
   const indexed = new Map(inspections(user, project.id).filter((i) => i.status === "ok").map((i) => [i.key, i]));
+  // UX-12: summary by type, repeated issues across pages, and an errors-only view.
+  const onlyErrors = sp.only === "errors";
+  const byType = new Map<string, { pages: Set<string>; items: number; errors: number; warnings: number; doc?: string }>();
+  const repeated = new Map<string, { label: string; severity: string; pages: Set<string>; doc?: string }>();
+  for (const p of pages) for (const it of p.items) {
+    const t = it.types.join(", ") || "(no @type)";
+    const row = byType.get(t) ?? { pages: new Set<string>(), items: 0, errors: 0, warnings: 0, doc: it.issues.find((i) => i.docUrl)?.docUrl };
+    row.pages.add(p.url); row.items++;
+    row.errors += it.issues.filter((i) => i.severity === "error").length;
+    row.warnings += it.issues.filter((i) => i.severity !== "error").length;
+    byType.set(t, row);
+    for (const i of it.issues) {
+      const key = `${t}|${i.severity}|${i.property}|${i.message}`;
+      const r = repeated.get(key) ?? { label: `${t}: ${i.message}`, severity: i.severity, pages: new Set<string>(), doc: i.docUrl };
+      r.pages.add(p.url);
+      repeated.set(key, r);
+    }
+  }
+  const repeatedList = [...repeated.values()].filter((r) => r.pages.size > 1).sort((a, b) => (a.severity === "error" ? -1 : 1) - (b.severity === "error" ? -1 : 1) || b.pages.size - a.pages.size);
+  const shownPages = onlyErrors ? pages.filter((p) => p.errors > 0) : pages;
   const totals = pages.reduce((t, p) => ({ items: t.items + p.items.length, errors: t.errors + p.errors, warnings: t.warnings + p.warnings }), { items: 0, errors: 0, warnings: 0 });
 
   return (
@@ -56,11 +76,54 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
       ) : (
         <>
           <p className="mb-3 text-sm text-slate-600">{pages.length} pages · {totals.items} items · <span className="text-sev-high">{totals.errors} errors</span> · <span className="text-sev-med">{totals.warnings} warnings</span> · <Link className="text-accent-600 underline" href={`/issues?run=${runRow.id}&type=structured-data`}>open as findings</Link></p>
+
+          <Card title="Summary by type" className="mb-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-sm" data-testid="sd-summary">
+                <thead className="text-xs uppercase text-slate-500"><tr><th className="py-1 pr-3">Type</th><th className="pr-3 text-right">Pages</th><th className="pr-3 text-right">Items</th><th className="pr-3 text-right">Errors</th><th className="pr-3 text-right">Warnings</th><th>Google docs</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[...byType.entries()].sort((a, b) => b[1].errors - a[1].errors || b[1].items - a[1].items).map(([t, r]) => (
+                    <tr key={t}>
+                      <td className="py-1.5 pr-3 font-medium">{t}</td><td className="tabular pr-3 text-right">{r.pages.size}</td><td className="tabular pr-3 text-right">{r.items}</td>
+                      <td className={cx("tabular pr-3 text-right", r.errors > 0 && "font-semibold text-sev-high")}>{r.errors}</td><td className="tabular pr-3 text-right">{r.warnings}</td>
+                      <td>{r.doc ? <a href={r.doc} target="_blank" rel="noopener noreferrer" className="text-accent-600 underline">rules</a> : "–"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {repeatedList.length > 0 && (
+              <details className="mt-3 text-sm" data-testid="sd-repeated">
+                <summary className="cursor-pointer font-medium text-navy-900">Same issue on several pages ({repeatedList.length})</summary>
+                <ul className="mt-2 space-y-1">
+                  {repeatedList.slice(0, 30).map((r) => (
+                    <li key={r.label + r.severity}>
+                      <span className={r.severity === "error" ? "text-sev-high" : "text-sev-med"}>{r.severity === "error" ? "Error" : "Warning"}</span> {r.label} <span className="text-slate-500">· {r.pages.size} pages</span>
+                      {r.doc && <> · <a className="text-accent-600 underline" href={r.doc} target="_blank" rel="noopener noreferrer">docs</a></>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </Card>
+
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="Which pages to show">
+            <Link href={`/google/structured-data?project=${project.id}&run=${runRow.id}`} aria-current={!onlyErrors ? "page" : undefined}
+              className={cx("rounded-full border px-3 py-1", !onlyErrors ? "border-navy-900 bg-navy-900 text-white" : "border-slate-300 bg-white")}>All pages ({pages.length})</Link>
+            <Link href={`/google/structured-data?project=${project.id}&run=${runRow.id}&only=errors`} aria-current={onlyErrors ? "page" : undefined} data-testid="sd-errors-only"
+              className={cx("rounded-full border px-3 py-1", onlyErrors ? "border-navy-900 bg-navy-900 text-white" : "border-slate-300 bg-white")}>Pages with errors ({pages.filter((p) => p.errors > 0).length})</Link>
+            <span className="text-slate-500">Each page below is collapsed; pages with errors start open.</span>
+          </div>
           <div className="space-y-4">
-            {pages.map((p) => {
+            {shownPages.map((p) => {
               const insp = indexed.get(p.url);
               return (
-                <Card key={p.url} title={<span className="break-all">{shortUrl(p.url)}</span>} actions={
+                <details key={p.url} open={p.errors > 0 || shownPages.length === 1} className="rounded-lg border border-slate-200 bg-white" data-testid="sd-page">
+                <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+                  <span className="break-all font-semibold text-navy-900">{shortUrl(p.url)}</span>
+                  <span className="text-xs text-slate-600">{p.items.length} item{p.items.length === 1 ? "" : "s"} · <span className={p.errors ? "font-semibold text-sev-high" : ""}>{p.errors} errors</span> · {p.warnings} warnings</span>
+                </summary>
+                <Card className="border-0 border-t" actions={
                   <a href={richResultsTestUrl(p.url)} target="_blank" rel="noopener noreferrer" className={btn.secondary} data-testid="open-rrt">Open in Google Rich Results Test ↗</a>
                 }>
                   <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
@@ -103,6 +166,7 @@ export default async function StructuredDataPage({ searchParams }: { searchParam
                   </div>
                   )}
                 </Card>
+                </details>
               );
             })}
           </div>
