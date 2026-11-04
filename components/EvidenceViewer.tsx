@@ -90,6 +90,9 @@ export function EvidenceViewer({ shots, annotated, pageUrl }: { shots: Shot[]; a
         </div>
       )}
       {mode === "crop" && annotated && <p className="mt-1 text-xs text-slate-500">Click the image to open it at full size.</p>}
+      {shot && shot.boxes.length > 0 && shot.boxes.every((b) => b.w <= 0 && b.h <= 0) && (
+        <p className="mt-1 text-xs text-slate-600" data-testid="no-size-note">This element has no visible size or position on the page (for example, an image that failed to load and isn&apos;t displayed), so it can&apos;t be outlined.</p>
+      )}
       {shot && shot.boxes.length === 0 && <p className="mt-1 text-xs text-slate-500">Page-level finding: no single element to highlight at this width.</p>}
     </div>
   );

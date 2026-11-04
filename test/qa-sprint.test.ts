@@ -409,3 +409,14 @@ describe("BUG-20 / BUG-21: cancelled audits explain themselves", async () => {
     expect(note).toMatch(/^Cancelled .* after 22 s\. 109 raw findings collected so far were not imported\.$/);
   });
 });
+
+describe("BUG-19: zero-size elements get a visible marker", async () => {
+  const { markerFor } = await import("../src/report/annotate");
+  it("draws a ring around the position of a 0x0 element, with a caption; normal boxes are unchanged", () => {
+    expect(markerFor({ x: 100, y: 200, w: 0, h: 0 })).toEqual({ x: 72, y: 172, w: 56, h: 56, tiny: true });
+    // Not laid out at all (the real CNT-0001: 0×0 at 0,0): nothing to point at, so no marker.
+    expect(markerFor({ x: 0, y: 0, w: 0, h: 0 })).toBeNull();
+    expect(markerFor({ x: 2, y: 3, w: 1, h: 1 })).toMatchObject({ x: 0, y: 0, tiny: true });
+    expect(markerFor({ x: 10, y: 20, w: 300, h: 40 })).toEqual({ x: 10, y: 20, w: 300, h: 40, tiny: false });
+  });
+});

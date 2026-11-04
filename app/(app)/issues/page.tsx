@@ -171,7 +171,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
               {reportRun && can(user, "export:create") && (
                 <>
                   <input type="hidden" name="run" value={reportRun} />
-                  <button type="submit" formAction="/reports" formMethod="get" className={cx(btn.secondary, "ml-auto")} data-testid="report-from-selected">Create report from selected</button>
+                  <button type="submit" formAction="/reports" formMethod="get" formNoValidate className={cx(btn.secondary, "ml-auto")} data-testid="report-from-selected">Create report from selected</button>
                 </>
               )}
             </div>
