@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { can } from "@/server/permissions";
 import { googleTasks, gscHistory, presetRange, projectGoogle } from "@/server/google/service";
 import { queueGscPerformanceAction } from "@/app/google-actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { Delta, fmtNum, fmtPct, GoogleTabs, ProjectPicker, Source, Unavailable } from "@/components/google";
+import { Delta, fmtNum, fmtPct, GoogleTabs, ProjectPicker, Source, Unavailable, GscStatusNotice } from "@/components/google";
 import { Card, Empty, fmtDate, input, label, Notice, PageHeader, shortUrl } from "@/components/ui";
 import { selectProject } from "../shared";
 
@@ -25,6 +26,7 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
   const shown = history.find((h) => h.id === sp.id) ?? history.find((h) => h.status === "ok") ?? history[0];
   const pending = googleTasks(user, project.id, 30).some((t) => t.type === "gsc_performance" && (t.status === "pending" || t.status === "running"));
   const connected = !!(pg.gsc_property && pg.connection_id);
+  const gsc = searchConsoleStatus(user, project.id);
   const d = shown?.status === "ok" ? shown.data : null;
   const r28 = presetRange(28);
 
@@ -35,8 +37,9 @@ export default async function SearchConsolePage({ searchParams }: { searchParams
       {pending && <AutoRefresh everyMs={3000} />}
       <ProjectPicker projects={projects} selected={project.id} />
 
+      {connected && gsc.state !== "ready" && <div className="mb-3"><GscStatusNotice status={gsc} /></div>}
       {!connected ? (
-        <Notice tone="warn">Search Console isn&apos;t connected for {project.name}. Connect Google and select the property in <Link className="underline" href={`/google/connections?project=${project.id}`}>Google Connections</Link>.</Notice>
+        <GscStatusNotice status={gsc} />
       ) : (
         <>
           <p className="mb-3 text-sm text-slate-600">Property <strong>{pg.gsc_property}</strong> · via {pg.connection_owner}&apos;s Google connection</p>

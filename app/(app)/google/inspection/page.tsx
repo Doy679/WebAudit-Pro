@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { can } from "@/server/permissions";
 import { googleTasks, inspections, projectGoogle } from "@/server/google/service";
 import { listRuns, runPages } from "@/server/runs";
@@ -7,7 +8,7 @@ import { listIssues } from "@/server/issues";
 import { queueInspectionAction } from "@/app/google-actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { GoogleTabs, ProjectPicker, Source, Unavailable } from "@/components/google";
+import { GoogleTabs, ProjectPicker, Source, Unavailable, GscStatusNotice } from "@/components/google";
 import { Card, cx, Empty, fmtDate, hint, input, label, Notice, PageHeader, shortUrl } from "@/components/ui";
 import { selectProject } from "../shared";
 
@@ -23,6 +24,7 @@ export default async function InspectionPage({ searchParams }: { searchParams: P
   if (!project) return (<><PageHeader title="URL Inspection" /><Empty title="Add a website first" /></>);
   const pg = projectGoogle(user, project.id);
   const connected = !!(pg.gsc_property && pg.connection_id);
+  const gsc = searchConsoleStatus(user, project.id);
   const rows = inspections(user, project.id);
   const pending = googleTasks(user, project.id, 50).filter((t) => t.type === "gsc_inspect" && (t.status === "pending" || t.status === "running")).length;
   const lastRun = listRuns(user, { projectId: project.id, status: "completed", limit: 1 })[0];
@@ -38,8 +40,9 @@ export default async function InspectionPage({ searchParams }: { searchParams: P
       {pending > 0 && <AutoRefresh everyMs={3000} />}
       <ProjectPicker projects={projects} selected={project.id} />
 
+      {connected && gsc.state !== "ready" && <div className="mb-3"><GscStatusNotice status={gsc} /></div>}
       {!connected ? (
-        <Notice tone="warn">Search Console isn&apos;t connected for {project.name}. Set it up in <Link className="underline" href={`/google/connections?project=${project.id}`}>Google Connections</Link>.</Notice>
+        <GscStatusNotice status={gsc} />
       ) : can(user, "audit:start") && (
         <Card title="Inspect URLs" className="mb-6">
           <ActionForm action={queueInspectionAction} className="space-y-3">

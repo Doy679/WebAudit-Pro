@@ -12,7 +12,7 @@ import { queryCrux } from "./crux";
 import {
   authUrl, pkcePair, exchangeCode, refreshAccess, revokeToken, listSites, searchAnalytics, listSitemaps, inspectUrl,
   parseInspection, inspectionFindings, sitemapFindings, propertyCoversUrl, propertyMatchesDomain,
-  GscAuthError, GscPermissionError, GscQuotaError, type SiteEntry, type AnalyticsRow,
+  GscAuthError, GscError, GscQuotaError, type SiteEntry, type AnalyticsRow,
 } from "./gsc";
 import type { FieldData, ProviderFinding, PsiResult, Strategy } from "./types";
 
@@ -96,10 +96,14 @@ async function accessToken(connectionId: string): Promise<string> {
   if (!cfg.oauthClientId || !cfg.oauthClientSecret) throw new GscAuthError("Google OAuth is no longer configured.");
   try {
     const t = await refreshAccess({ refreshToken: decryptSecret(c.refresh_token_enc), clientId: cfg.oauthClientId, clientSecret: cfg.oauthClientSecret }, googleFetch);
-    run("UPDATE google_connections SET access_token_enc = ?, access_expires_at = ?, last_error = NULL WHERE id = ?", encryptSecret(t.accessToken), t.expiresAt, connectionId);
+    run(`UPDATE google_connections SET access_token_enc = ?, access_expires_at = ?,
+           last_error = CASE WHEN last_error_kind IS NULL OR last_error_kind = 'auth' THEN NULL ELSE last_error END,
+           last_error_detail = CASE WHEN last_error_kind IS NULL OR last_error_kind = 'auth' THEN NULL ELSE last_error_detail END,
+           last_error_kind = CASE WHEN last_error_kind = 'auth' THEN NULL ELSE last_error_kind END WHERE id = ?`,
+      encryptSecret(t.accessToken), t.expiresAt, connectionId);
     return t.accessToken;
   } catch (e) {
-    if (e instanceof GscAuthError) run("UPDATE google_connections SET last_error = ? WHERE id = ?", e.message, connectionId);
+    if (e instanceof GscAuthError) run("UPDATE google_connections SET last_error = ?, last_error_kind = 'auth', last_check_at = ? WHERE id = ?", e.message, now(), connectionId);
     throw e;
   }
 }
@@ -111,13 +115,42 @@ function ownedConnection(user: User, connectionId: string) {
 }
 
 const sitesCache = new Map<string, { at: number; sites: SiteEntry[] }>();
+// A failed check is remembered briefly so page views don't call Google again on every load; Retry bypasses it.
+const failedCache = new Map<string, { at: number; error: Error }>();
 export async function listProperties(user: User, connectionId: string): Promise<SiteEntry[]> {
   ownedConnection(user, connectionId);
   const hit = sitesCache.get(connectionId);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.sites;
-  const sites = await listSites(await accessToken(connectionId), googleFetch);
-  sitesCache.set(connectionId, { at: Date.now(), sites });
-  return sites;
+  const failed = failedCache.get(connectionId);
+  if (failed && Date.now() - failed.at < 2 * 60_000) throw failed.error;
+  try {
+    const sites = await listSites(await accessToken(connectionId), googleFetch);
+    sitesCache.set(connectionId, { at: Date.now(), sites });
+    failedCache.delete(connectionId);
+    run("UPDATE google_connections SET last_error = NULL, last_error_kind = NULL, last_error_detail = NULL, last_check_at = ? WHERE id = ?", now(), connectionId);
+    return sites;
+  } catch (e) {
+    const err = e as GscError;
+    failedCache.set(connectionId, { at: Date.now(), error: err });
+    run("UPDATE google_connections SET last_error = ?, last_error_kind = ?, last_error_detail = ?, last_check_at = ? WHERE id = ?",
+      err.message, err.kind ?? "other", err.technical ?? null, now(), connectionId);
+    throw e;
+  }
+}
+
+/** Retry / Test connection: one read-only sites.list call, bypassing caches. Never exposes tokens. */
+export async function testSearchConsole(user: User, connectionId: string, projectId?: string):
+  Promise<{ ok: true; properties: number } | { ok: false; kind: string; message: string }> {
+  ownedConnection(user, connectionId);
+  sitesCache.delete(connectionId);
+  failedCache.delete(connectionId);
+  try {
+    const sites = await listProperties(user, connectionId);
+    const domain = projectId ? getProject(user, projectId).domain : null;
+    return { ok: true, properties: domain ? sites.filter((s) => propertyMatchesDomain(s.siteUrl, domain)).length : sites.length };
+  } catch (e) {
+    return { ok: false, kind: (e as GscError).kind ?? "other", message: (e as Error).message };
+  }
 }
 
 export async function bindProperty(user: User, projectId: string, connectionId: string, property: string) {
@@ -221,7 +254,7 @@ export function claimGoogleTask(): string | undefined {
 
 const errorKind = (e: unknown) =>
   e instanceof PsiQuotaError || e instanceof GscQuotaError ? "quota" : e instanceof PsiConfigError ? "config" : e instanceof PsiPageError ? "page"
-    : e instanceof GscPermissionError ? "permission" : e instanceof GscAuthError ? "auth" : "transient";
+    : e instanceof GscError ? e.kind : "transient";
 
 /** Runs one queued Google request. Provider failures are stored as error rows (never as invented data). */
 export async function processGoogleTask(taskId: string): Promise<"completed" | "failed"> {
@@ -322,6 +355,12 @@ async function doGsc(t: Task, type: Exclude<TaskType, "psi">, p: Record<string, 
     }
   } catch (e) {
     store(kind, key, p, null, (e as Error).message);
+    // Account-level problems found by a background request feed the shared status (BUG-02).
+    const err = e as GscError;
+    if (err instanceof GscError && ["api-disabled", "auth", "permission"].includes(err.kind)) {
+      run("UPDATE google_connections SET last_error = ?, last_error_kind = ?, last_error_detail = ?, last_check_at = ? WHERE id = ?",
+        err.message, err.kind, err.technical ?? null, now(), pg.connection_id);
+    }
     throw e;
   }
 }

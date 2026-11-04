@@ -4,6 +4,7 @@ import { overviewStats, recentActivity, websiteSummaries } from "@/server/stats"
 import { onboardingState } from "@/server/onboarding";
 import { workerStatus } from "@/server/worker-status";
 import { googleStatus } from "@/server/google/config";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { can } from "@/server/permissions";
 import { setOnboardingAction } from "@/app/actions";
 import { btn, Card, cx, Empty, fmtDate, Notice, PageHeader, StatusPill } from "@/components/ui";
@@ -34,6 +35,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const guideOpen = !guide.dismissed && guide.steps.some((x) => !x.done);
   const worker = workerStatus();
   const google = googleStatus();
+  const gsc = searchConsoleStatus(user);
   const starter = can(user, "audit:start");
 
   return (
@@ -128,8 +130,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
                 <span>
                   <span className="block font-medium text-navy-900">Google SEO &amp; Performance</span>
                   <span className="block text-xs text-slate-600">
-                    PageSpeed: {google.apiKeyConfigured ? "set up" : "not set up"} · Search Console: {google.oauthConfigured ? "set up" : "not set up"}.{" "}
-                    {!google.apiKeyConfigured || !google.oauthConfigured ? "Audits still work without it; Google data just won't appear. " : ""}
+                    PageSpeed: {google.apiKeyConfigured ? "set up" : "not set up"} · <span data-testid="dashboard-gsc" data-state={gsc.state}>{gsc.label}</span>.{" "}
+                    {!google.apiKeyConfigured || gsc.state !== "ready" ? "Audits still work without it; Google data just won't appear. " : ""}
                     <Link href="/google/connections" className="text-accent-600 underline">Connections</Link>
                   </span>
                 </span>

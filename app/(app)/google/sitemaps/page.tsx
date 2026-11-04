@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { requireUser } from "@/app/lib/session";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { can } from "@/server/permissions";
 import { googleTasks, latestGsc, projectGoogle } from "@/server/google/service";
 import type { SitemapInfo } from "@/server/google/gsc";
 import { queueSitemapsAction } from "@/app/google-actions";
 import { ActionForm, Submit } from "@/components/forms";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { fmtNum, GoogleTabs, ProjectPicker, Source, Unavailable } from "@/components/google";
+import { fmtNum, GoogleTabs, ProjectPicker, Source, Unavailable, GscStatusNotice } from "@/components/google";
 import { Card, Empty, fmtDate, Notice, PageHeader } from "@/components/ui";
 import { selectProject } from "../shared";
 
@@ -20,6 +21,7 @@ export default async function SitemapsPage({ searchParams }: { searchParams: Pro
   if (!project) return (<><PageHeader title="Sitemaps" /><Empty title="Add a website first" /></>);
   const pg = projectGoogle(user, project.id);
   const connected = !!(pg.gsc_property && pg.connection_id);
+  const gsc = searchConsoleStatus(user, project.id);
   const latest = latestGsc(user, project.id, "sitemaps");
   const pending = googleTasks(user, project.id, 20).some((t) => t.type === "gsc_sitemaps" && (t.status === "pending" || t.status === "running"));
   const sitemaps: SitemapInfo[] = latest?.status === "ok" ? latest.data.sitemaps : [];
@@ -30,8 +32,9 @@ export default async function SitemapsPage({ searchParams }: { searchParams: Pro
       <GoogleTabs active="sitemaps" project={project.id} />
       {pending && <AutoRefresh everyMs={3000} />}
       <ProjectPicker projects={projects} selected={project.id} />
+      {connected && gsc.state !== "ready" && <div className="mb-3"><GscStatusNotice status={gsc} /></div>}
       {!connected ? (
-        <Notice tone="warn">Search Console isn&apos;t connected for {project.name}. Set it up in <Link className="underline" href={`/google/connections?project=${project.id}`}>Google Connections</Link>.</Notice>
+        <GscStatusNotice status={gsc} />
       ) : (
         <>
           {can(user, "audit:start") && (

@@ -3,9 +3,10 @@ import { can } from "@/server/permissions";
 import { googleStatus } from "@/server/google/config";
 import { listConnections, listProperties, projectGoogle } from "@/server/google/service";
 import { propertyMatchesDomain } from "@/server/google/gsc";
-import { bindPropertyAction, disconnectGoogleAction, saveGoogleCredentialsAction, setGoogleLimitsAction } from "@/app/google-actions";
+import { bindPropertyAction, disconnectGoogleAction, saveGoogleCredentialsAction, setGoogleLimitsAction, testSearchConsoleAction } from "@/app/google-actions";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { ActionForm, Submit } from "@/components/forms";
-import { GoogleTabs } from "@/components/google";
+import { GoogleTabs, GscStatusNotice } from "@/components/google";
 import { btn, Card, fmtDate, hint, input, label, Notice, PageHeader } from "@/components/ui";
 import { selectProject } from "../shared";
 
@@ -21,16 +22,18 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
   const { projects, project } = selectProject(user, sp.project);
   const pg = project ? projectGoogle(user, project.id) : null;
 
-  // Properties are listed live from Google for the user's own connection.
+  // Properties are listed from Google for the user's own connection (cached; a failure is remembered for 2 minutes).
   let properties: { siteUrl: string; permissionLevel: string }[] = [];
-  let propertyError: string | null = null;
+  let listed = false;
   if (connections[0] && project && can(user, "project:edit")) {
     try {
       properties = (await listProperties(user, connections[0].id)).filter((p) => propertyMatchesDomain(p.siteUrl, project.domain));
-    } catch (e) {
-      propertyError = (e as Error).message;
+      listed = true;
+    } catch {
+      // Recorded on the connection; shown through the shared status below.
     }
   }
+  const gsc = searchConsoleStatus(user, project?.id);
 
   return (
     <>
@@ -46,11 +49,13 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <dt className="text-slate-500">PageSpeed Insights API</dt>
             <dd data-testid="psi-status">{status.apiKeyConfigured ? <>Configured ({status.apiKeySource}){status.lastApiCheck ? ` · last success ${fmtDate(status.lastApiCheck.slice(3))}` : " · not yet used"}</> : <span className="text-sev-med">Not configured: add an API key</span>}</dd>
             <dt className="text-slate-500">Chrome UX Report API</dt>
-            <dd>{status.cruxEnabled ? "Enabled (uses the same API key)" : "Off (optional)"}</dd>
+            <dd>{status.cruxEnabled ? "Enabled (uses the same API key)" : "Off (optional extra history). Basic real-user data still comes from PageSpeed."}</dd>
             <dt className="text-slate-500">Search Console OAuth</dt>
             <dd data-testid="oauth-status">{status.oauthConfigured ? "Client configured" : <span className="text-sev-med">Not configured: add an OAuth client</span>}</dd>
             <dt className="text-slate-500">Your Google connection</dt>
-            <dd>{connections[0] ? <>Connected {fmtDate(connections[0].created_at)}{connections[0].last_error ? <span className="block text-sev-high">{connections[0].last_error}</span> : null}</> : "Not connected"}</dd>
+            <dd>{connections[0] ? <>Connected {fmtDate(connections[0].created_at)}</> : "Not connected"}</dd>
+            <dt className="text-slate-500">Search Console</dt>
+            <dd data-testid="gsc-status-label">{gsc.label}{gsc.checkedAt ? <span className="text-xs text-slate-500"> · checked {fmtDate(gsc.checkedAt)}</span> : null}</dd>
             <dt className="text-slate-500">Rich Results Test</dt>
             <dd>No public API. WebAudit Pro validates structured data internally and links to Google&apos;s official test.</dd>
           </dl>
@@ -90,8 +95,25 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
               <button className={btn.secondary}>Show</button>
             </form>
             <p className="mb-2 text-sm">Search Console property: <strong data-testid="bound-property">{pg?.gsc_property ?? "none selected"}</strong>{pg?.gsc_property && pg.connection_owner ? ` (via ${pg.connection_owner}'s connection)` : ""}{pg?.gsc_property && !pg.connection_id ? <span className="text-sev-med"> · connection removed: reconnect and select again</span> : null}</p>
+            {connections[0] && (
+              <div className="mb-3 space-y-2">
+                {gsc.state !== "ready" && <GscStatusNotice status={{ ...gsc, action: undefined }} />}
+                {gsc.errorKind === "api-disabled" && admin && (
+                  <p className="text-sm text-slate-700">
+                    Fix: in Google Cloud Console open <em>APIs &amp; Services → Library</em>, find <strong>Google Search Console API</strong> and press <strong>Enable</strong>
+                    {" "}(<a className="text-accent-600 underline" href="https://console.cloud.google.com/apis/library/searchconsole.googleapis.com" target="_blank" rel="noopener noreferrer">open it</a>). Wait a few minutes, then press Retry.
+                  </p>
+                )}
+                <ActionForm action={testSearchConsoleAction} className="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="connectionId" value={connections[0].id} />
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <Submit variant="secondary">Retry / Test connection</Submit>
+                  <span className={hint}>Makes one read-only request to Google.</span>
+                </ActionForm>
+              </div>
+            )}
             {connections[0] ? (
-              propertyError ? <Notice tone="error">{propertyError}</Notice> : properties.length ? (
+              !listed ? null : properties.length ? (
                 <ActionForm action={bindPropertyAction} className="flex flex-wrap items-end gap-2">
                   <input type="hidden" name="projectId" value={project.id} />
                   <input type="hidden" name="connectionId" value={connections[0].id} />

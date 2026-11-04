@@ -166,6 +166,11 @@ function migrate(db: DB) {
   if (!issueCols.has("metric_key")) db.exec("ALTER TABLE issues ADD COLUMN metric_key TEXT");
   if (!issueCols.has("related_json")) db.exec("ALTER TABLE issues ADD COLUMN related_json TEXT NOT NULL DEFAULT '[]'");
   // How many times an audit job was started; interrupted audits are requeued a limited number of times.
+  // Outcome of the last Search Console check per connection (BUG-01/02): kind, admin-only detail, time.
+  const gc = cols("google_connections");
+  if (!gc.has("last_error_kind")) db.exec("ALTER TABLE google_connections ADD COLUMN last_error_kind TEXT");
+  if (!gc.has("last_error_detail")) db.exec("ALTER TABLE google_connections ADD COLUMN last_error_detail TEXT");
+  if (!gc.has("last_check_at")) db.exec("ALTER TABLE google_connections ADD COLUMN last_check_at TEXT");
   if (!cols("jobs").has("attempts")) db.exec("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
 }
 

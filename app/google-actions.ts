@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { requireUser } from "@/app/lib/session";
 import { saveGoogleCredentials } from "@/server/google/config";
-import { bindProperty, disconnect, presetRange, queueGsc, queuePsi, setProjectLimits } from "@/server/google/service";
+import { bindProperty, disconnect, presetRange, queueGsc, queuePsi, setProjectLimits, testSearchConsole } from "@/server/google/service";
 import type { ActionState } from "@/app/actions";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
@@ -93,5 +93,17 @@ export async function queueInspectionAction(_: ActionState, fd: FormData): Promi
     const ids = queueGsc(user, str(fd, "projectId"), { kind: "inspection", urls: lines(fd, "urls"), runId: str(fd, "runId") || undefined });
     revalidatePath("/google/inspection");
     return { ok: `${ids.length} URL inspection${ids.length === 1 ? "" : "s"} queued.` };
+  });
+}
+
+/** Retry / Test connection (BUG-01): one read-only Search Console call; the result feeds the shared status. */
+export async function testSearchConsoleAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const user = await requireUser();
+    const projectId = str(fd, "projectId") || undefined;
+    const r = await testSearchConsole(user, str(fd, "connectionId"), projectId);
+    revalidatePath("/", "layout");
+    if (!r.ok) return { error: r.message };
+    return { ok: `Search Console is working. ${r.properties} matching propert${r.properties === 1 ? "y" : "ies"} found${projectId ? " for this website" : ""}.` };
   });
 }

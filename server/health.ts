@@ -4,6 +4,7 @@ import { all, get } from "./db";
 import type { User } from "./auth";
 import { assertProjectAccess } from "./permissions";
 import { inspections, latestGsc, projectGoogle, psiResults, type PsiRow } from "./google/service";
+import { searchConsoleStatus } from "./google/gsc-status";
 
 type Counts = { confirmed: number; recommendation: number; needsReview: number; high: number };
 
@@ -85,8 +86,9 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
   } : { key: "structured", title: "Structured Data", state: "not-run", why: run ? "Category not included in the audit" : "No completed audit", metrics: [], source: "Internal schema validator" });
 
   const connected = !!(pg.gsc_property && pg.connection_id);
+  const gscLabel = searchConsoleStatus(user, projectId).label; // same wording as every other screen (BUG-02)
   const perf = connected ? latestGsc(user, projectId, "performance") : undefined;
-  sections.push(!connected ? { key: "visibility", title: "Google Search Visibility", state: "not-connected", why: "Search Console not connected", metrics: [], source: "Google Search Console", href: `/google/connections?project=${projectId}` }
+  sections.push(!connected ? { key: "visibility", title: "Google Search Visibility", state: "not-connected", why: gscLabel, metrics: [], source: "Google Search Console", href: `/google/connections?project=${projectId}` }
     : perf?.status === "ok" ? {
       key: "visibility", title: "Google Search Visibility", state: "ok", source: `Google Search Console · ${perf.data.range.startDate} to ${perf.data.range.endDate}`,
       metrics: [
@@ -99,7 +101,7 @@ export function websiteHealth(user: User, projectId: string, runId?: string) {
 
   const insp = connected ? inspections(user, projectId).filter((i) => i.status === "ok") : [];
   const sitemaps = connected ? latestGsc(user, projectId, "sitemaps") : undefined;
-  sections.push(!connected ? { key: "indexing", title: "Indexing & Crawl Health", state: "not-connected", why: "Search Console not connected", metrics: [], source: "Google Search Console", href: `/google/connections?project=${projectId}` }
+  sections.push(!connected ? { key: "indexing", title: "Indexing & Crawl Health", state: "not-connected", why: gscLabel, metrics: [], source: "Google Search Console", href: `/google/connections?project=${projectId}` }
     : insp.length || sitemaps?.status === "ok" ? {
       key: "indexing", title: "Indexing & Crawl Health", state: "ok", source: "Google Search Console (Google-indexed data)",
       findings: run ? counts(run.id, TYPES.indexing) : undefined,

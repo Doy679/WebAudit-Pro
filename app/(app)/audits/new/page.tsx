@@ -4,6 +4,7 @@ import { listProjects } from "@/server/projects";
 import { googleStatus } from "@/server/google/config";
 import { projectGoogle } from "@/server/google/service";
 import { workerStatus } from "@/server/worker-status";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { startAuditAction } from "@/app/actions";
 import { NewAuditForm, type AuditProjectOption } from "@/components/NewAuditForm";
 import { Card, Empty, PageHeader } from "@/components/ui";
@@ -39,7 +40,7 @@ export default async function NewAuditPage({ searchParams }: { searchParams: Pro
         categories: s.categories?.length ? s.categories : CATEGORIES.map((c) => c.value),
       },
       hasStandards: !!s.tokens,
-      google: { psiReady: g.apiKeyConfigured, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls },
+      google: { psiReady: g.apiKeyConfigured, psiMax: pg.psi_max_urls, gscReady: !!(pg.gsc_property && pg.connection_id), property: pg.gsc_property, inspectMax: pg.inspection_max_urls, gscLabel: searchConsoleStatus(user, p.id).label },
     };
   });
   const initial = options.find((o) => o.id === requested) ?? options[0];

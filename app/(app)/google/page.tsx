@@ -3,10 +3,11 @@ import { requireUser } from "@/app/lib/session";
 import { googleStatus } from "@/server/google/config";
 import { googleTasks, projectGoogle } from "@/server/google/service";
 import { websiteHealth } from "@/server/health";
-import { GoogleTabs, ProjectPicker } from "@/components/google";
+import { GoogleTabs, ProjectPicker, GscStatusNotice } from "@/components/google";
 import { WebsiteHealth } from "@/components/WebsiteHealth";
 import { Card, Empty, fmtDate, Notice, PageHeader, StatusPill } from "@/components/ui";
 import { selectProject } from "./shared";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Google SEO & Performance" };
@@ -20,6 +21,7 @@ export default async function GoogleOverviewPage({ searchParams }: { searchParam
   if (!project) return (<><PageHeader title="Google SEO & Performance" /><Empty title="Add a website first" /></>);
   const status = googleStatus();
   const pg = projectGoogle(user, project.id);
+  const gsc = searchConsoleStatus(user, project.id);
   const health = websiteHealth(user, project.id);
   const tasks = googleTasks(user, project.id, 15);
 
@@ -29,12 +31,12 @@ export default async function GoogleOverviewPage({ searchParams }: { searchParam
       <GoogleTabs active="" project={project.id} />
       <ProjectPicker projects={projects} selected={project.id} />
 
-      {(!status.apiKeyConfigured || !status.oauthConfigured || !pg.gsc_property) && (
-        <div className="mb-4"><Notice tone="warn">
-          Integration status: PageSpeed {status.apiKeyConfigured ? "configured" : "not configured"} · Search Console {status.oauthConfigured ? (pg.gsc_property ? "connected" : "not connected for this website") : "not configured"}.{" "}
-          <Link className="underline" href={`/google/connections?project=${project.id}`}>Set up Google Connections</Link>. Areas without data show “Not run” or “Not connected” rather than estimates.
+      {!status.apiKeyConfigured && (
+        <div className="mb-2"><Notice tone="warn">
+          PageSpeed isn&apos;t set up: an admin needs to add a Google API key in <Link className="underline" href={`/google/connections?project=${project.id}`}>Google Connections</Link>. Areas without data show “Not run” rather than estimates.
         </Notice></div>
       )}
+      {gsc.state !== "ready" && <div className="mb-4"><GscStatusNotice status={gsc} /></div>}
 
       <WebsiteHealth {...health} />
       {health.run && <p className="mt-2 text-xs text-slate-500">Based on the audit of {fmtDate(health.run.created_at)} and the latest Google results for its start page ({health.run.start_url}).</p>}

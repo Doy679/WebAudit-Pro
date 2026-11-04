@@ -1,4 +1,5 @@
 import { requireUser } from "@/app/lib/session";
+import { searchConsoleStatus } from "@/server/google/gsc-status";
 import { listUsers, ROLE_LABELS, ROLES } from "@/server/auth";
 import { can } from "@/server/permissions";
 import { aiSettings, getSetting } from "@/server/settings";
@@ -19,6 +20,7 @@ const ROLE_HELP: Record<string, string> = {
 
 export default async function SettingsPage() {
   const user = await requireUser();
+  const gsc = searchConsoleStatus(user);
   const admin = can(user, "settings:manage");
   const users = can(user, "users:manage") ? listUsers() : [];
   const ai = aiSettings();
@@ -89,7 +91,8 @@ export default async function SettingsPage() {
           <div className="space-y-6">
             <Card title="Integrations">
               <p className="text-sm text-slate-600">Google PageSpeed Insights, Chrome UX Report and Search Console credentials and connections.</p>
-              <a href="/google/connections" className="mt-2 inline-block text-sm text-accent-600 underline">Connect Google Search Console →</a>
+              <p className="mt-2 text-sm" data-testid="settings-gsc" data-state={gsc.state}>Search Console: <strong>{gsc.label}</strong></p>
+              <a href="/google/connections" className="mt-1 inline-block text-sm text-accent-600 underline">Open Google Connections →</a>
             </Card>
             <Card title="Backup">
               <p className="mb-2 text-sm text-slate-600">Writes a consistent copy of the database to data/backups (safe while audits run). Also available as <code className="text-xs">npm run backup</code>.</p>

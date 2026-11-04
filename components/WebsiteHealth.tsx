@@ -18,7 +18,7 @@ export function WebsiteHealth({ sections, coverage, total }: { sections: HealthS
             </div>
             <div className="text-[11px] text-slate-500">{s.source}</div>
             {s.state !== "ok" ? (
-              <p className={cx("mt-3 text-sm", s.state === "not-connected" ? "text-sev-med" : "text-slate-500")}>{s.state === "not-connected" ? "Not connected" : "Not run"}: {s.why}</p>
+              <p className={cx("mt-3 text-sm", s.state === "not-connected" ? "text-sev-med" : "text-slate-500")}>{s.state === "not-connected" ? s.why : <>Not run: {s.why}</>}</p>
             ) : (
               <>
                 {s.findings && (

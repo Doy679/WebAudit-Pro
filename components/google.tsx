@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cx, input, label } from "./ui";
+import type { GscStatus } from "@/server/google/gsc-status";
 
 /** PageSpeed's own colour bands: 90–100 good, 50–89 needs improvement, 0–49 poor. */
 export function Score({ value, label: text }: { value: number | null | undefined; label?: string }) {
@@ -90,5 +91,23 @@ export function Delta({ before, after, unit = "", lowerIsBetter = false, noise =
     <span className={cx("tabular text-xs", withinNoise ? "text-slate-500" : better ? "text-ok" : "text-sev-high")} title={withinNoise ? "Within normal run-to-run variation" : undefined}>
       {d > 0 ? "+" : ""}{Number.isInteger(d) ? d : d.toFixed(unit === "" ? 3 : 0)}{unit}{withinNoise ? " (≈ normal variation)" : ""}
     </span>
+  );
+}
+
+/** The one Search Console status (BUG-02), rendered the same way on every screen. */
+export function GscStatusNotice({ status, compact = false }: { status: GscStatus; compact?: boolean }) {
+  const tone = status.state === "ready" ? "border-green-300 bg-ok-bg text-ok" : status.state === "api-error" ? "border-red-300 bg-sev-high-bg text-sev-high" : "border-amber-300 bg-sev-med-bg text-sev-med";
+  return (
+    <div role="status" className={cx("rounded-md border px-3 py-2 text-sm", tone)} data-testid="gsc-status" data-state={status.state}>
+      <strong>{status.label}.</strong>{" "}
+      {!compact && <span className="text-slate-800">{status.detail}</span>}
+      {status.action && <> <Link href={status.action.href} className="underline">{status.action.label}</Link></>}
+      {status.technical && (
+        <details className="mt-1 text-xs text-slate-700">
+          <summary className="cursor-pointer">Technical details (admins)</summary>
+          <p className="mt-1 break-words font-mono">{status.technical}</p>
+        </details>
+      )}
+    </div>
   );
 }

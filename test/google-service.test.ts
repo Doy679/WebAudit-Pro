@@ -163,7 +163,7 @@ describe("Search Console connection", () => {
     const [id] = g.queueGsc(admin, projectId, { kind: "sitemaps" });
     await g.processGoogleTask(id);
     expect(g.latestGsc(admin, projectId, "sitemaps")).toMatchObject({ status: "error" });
-    expect(g.latestGsc(admin, projectId, "sitemaps")!.error).toMatch(/Access required/);
+    expect(g.latestGsc(admin, projectId, "sitemaps")!.error).toMatch(/doesn.t have access to this Search Console property/);
   });
 
   it("disconnects: revokes at Google, deletes tokens and unbinds projects", async () => {

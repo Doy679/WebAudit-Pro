@@ -5,10 +5,63 @@ import { createHash, randomBytes } from "node:crypto";
 import { GSC_SCOPE } from "./config";
 import type { ProviderFinding } from "./types";
 
-export class GscAuthError extends Error {}
-export class GscPermissionError extends Error {}
-export class GscQuotaError extends Error {}
-export class GscError extends Error {}
+/** What went wrong, in terms a user can act on. Google uses HTTP 403 for both a disabled API and a missing property permission. */
+export type GoogleErrorKind = "api-disabled" | "permission" | "auth" | "quota" | "network" | "transient" | "other";
+
+export class GscError extends Error {
+  kind: GoogleErrorKind = "other";
+  /** Google's own error text: shown only to admins under "Technical details". */
+  technical?: string;
+  projectNumber?: string;
+  activationUrl?: string;
+}
+export class GscAuthError extends GscError { override kind: GoogleErrorKind = "auth"; }
+export class GscPermissionError extends GscError { override kind: GoogleErrorKind = "permission"; }
+export class GscQuotaError extends GscError { override kind: GoogleErrorKind = "quota"; }
+export class GscApiDisabledError extends GscError { override kind: GoogleErrorKind = "api-disabled"; }
+
+export interface GoogleErrorInfo { kind: GoogleErrorKind; message: string; technical: string; projectNumber?: string; activationUrl?: string }
+
+/**
+ * Classifies a failed Google API response (BUG-01). SERVICE_DISABLED / accessNotConfigured means the API is
+ * switched off in the Google Cloud project: an admin fix, not a Search Console permission problem.
+ */
+export function classifyGoogleError(status: number, body: Json): GoogleErrorInfo {
+  const err = body?.error ?? {};
+  const raw = typeof err.message === "string" ? err.message : `HTTP ${status}`;
+  const reasons: string[] = [
+    ...((err.details ?? []) as Json[]).map((d) => d?.reason),
+    ...((err.errors ?? []) as Json[]).map((e) => e?.reason),
+  ].filter((r): r is string => typeof r === "string");
+  const info = ((err.details ?? []) as Json[]).find((d) => d?.reason === "SERVICE_DISABLED")?.metadata ?? {};
+  const technical = `HTTP ${status}${err.status ? ` ${err.status}` : ""}${reasons.length ? ` [${reasons.join(", ")}]` : ""}: ${raw}`;
+
+  if (reasons.includes("SERVICE_DISABLED") || reasons.includes("accessNotConfigured") || /has not been used in project|it is disabled/i.test(raw)) {
+    const projectNumber = (String(info.consumer ?? "").match(/projects\/(\d+)/) ?? raw.match(/project (\d+)/))?.[1];
+    const activationUrl = typeof info.activationUrl === "string" ? info.activationUrl : raw.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/\S+?(?=\s|$)/)?.[0];
+    return {
+      kind: "api-disabled", technical, projectNumber, activationUrl,
+      message: `The Google Search Console API is turned off in Google Cloud${projectNumber ? ` (project ${projectNumber})` : ""}. An admin needs to enable it, wait a few minutes, then press Retry.`,
+    };
+  }
+  if (status === 401) return { kind: "auth", technical, message: "Google sign-in expired or was revoked. Reconnect Google." };
+  if (status === 429 || reasons.some((r) => /rateLimitExceeded|quotaExceeded|userRateLimitExceeded|RATE_LIMIT_EXCEEDED/.test(r))) {
+    return { kind: "quota", technical, message: "Google's Search Console quota is used up for now. Try again later." };
+  }
+  if (status === 403) return { kind: "permission", technical, message: "Your Google account doesn't have access to this Search Console property. Ask the property owner to add your Google account in Search Console." };
+  if (status >= 500) return { kind: "transient", technical, message: `Google Search Console is temporarily unavailable (HTTP ${status}). Try again in a few minutes.` };
+  return { kind: "other", technical, message: `Search Console request failed (HTTP ${status}).` };
+}
+
+function errorFrom(info: GoogleErrorInfo): GscError {
+  const Cls = { "api-disabled": GscApiDisabledError, permission: GscPermissionError, auth: GscAuthError, quota: GscQuotaError }[info.kind as string] ?? GscError;
+  const e = new Cls(info.message);
+  e.kind = info.kind;
+  e.technical = info.technical;
+  e.projectNumber = info.projectNumber;
+  e.activationUrl = info.activationUrl;
+  return e;
+}
 
 type Fetch = typeof fetch;
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -66,19 +119,23 @@ export async function revokeToken(token: string, fetchImpl: Fetch = fetch) {
 }
 
 async function api(accessToken: string, url: string, init: { method?: string; body?: unknown }, fetchImpl: Fetch): Promise<Json> {
-  const res = await fetchImpl(url, {
-    method: init.method ?? "GET",
-    headers: { authorization: `Bearer ${accessToken}`, ...(init.body ? { "content-type": "application/json" } : {}) },
-    body: init.body ? JSON.stringify(init.body) : undefined,
-    signal: AbortSignal.timeout(60_000),
-  });
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: init.method ?? "GET",
+      headers: { authorization: `Bearer ${accessToken}`, ...(init.body ? { "content-type": "application/json" } : {}) },
+      body: init.body ? JSON.stringify(init.body) : undefined,
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e) {
+    const err = new GscError("Couldn't reach Google Search Console. Check the internet connection and try again.");
+    err.kind = "network";
+    err.technical = (e as Error).message;
+    throw err;
+  }
   const body = (await res.json().catch(() => ({}))) as Json;
   if (res.ok) return body;
-  const message = body?.error?.message ?? `HTTP ${res.status}`;
-  if (res.status === 401) throw new GscAuthError("Google rejected the access token. Reconnect Google.");
-  if (res.status === 403) throw new GscPermissionError(`Access required: your Google account doesn't have permission for this Search Console property (${message}).`);
-  if (res.status === 429) throw new GscQuotaError(`Search Console quota reached. Try again later. (${message})`);
-  throw new GscError(`Search Console API error (HTTP ${res.status}): ${message}`);
+  throw errorFrom(classifyGoogleError(res.status, body));
 }
 
 const WM = "https://www.googleapis.com/webmasters/v3";
