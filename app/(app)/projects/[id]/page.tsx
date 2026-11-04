@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
 import { getProject, projectMembers } from "@/server/projects";
 import { listRuns } from "@/server/runs";
@@ -11,6 +12,14 @@ import { CATEGORIES, VIEWPORTS } from "@/components/constants";
 import tokensJson from "@/config/tokens.json";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    return { title: getProject(await requireUser(), (await params).id).name };
+  } catch {
+    return { title: "Not found" };
+  }
+}
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

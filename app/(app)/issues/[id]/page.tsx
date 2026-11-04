@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
 import { getIssue, reviewActionsFor } from "@/server/issues";
 import { projectMembers } from "@/server/projects";
@@ -15,6 +16,15 @@ import { Card, cx, fmtDate, input, KindBadge, label, Notice, PageHeader, Severit
 import { PROVIDER_LABEL, TYPE_LABEL } from "@/components/constants";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const i = getIssue(await requireUser(), (await params).id);
+    return { title: `${i.code}: ${i.title} · ${i.project_name}` };
+  } catch {
+    return { title: "Not found" };
+  }
+}
 
 const ACTION_LABEL: Record<string, string> = {
   confirm: "Confirmed finding", false_positive: "Marked false positive", unverify: "Reset verification", approve: "Approved recommendation",

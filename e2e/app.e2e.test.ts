@@ -519,6 +519,19 @@ describe("WebAudit Pro end to end", () => {
     expect(docs).toEqual([]); // every click was a client-side navigation, never a full page reload
   });
 
+  it("BUG-22/23: detail pages have descriptive titles; unknown addresses get a branded 404 with ways back", async () => {
+    await page.goto(issueUrl);
+    expect(await page.title()).toMatch(/^[A-Z0-9]+-\d{4}: .+ · Fixture Mortgage · WebAudit Pro$/);
+    await page.goto(`${APP}/audits/${runId}`);
+    expect(await page.title()).toMatch(/^Audit .+ · Fixture Mortgage · WebAudit Pro$/);
+    await page.goto(`${APP}/projects/${projectId}`);
+    expect(await page.title()).toBe("Fixture Mortgage · WebAudit Pro");
+    const res = await page.goto(`${APP}/this-page-does-not-exist`);
+    expect(res?.status()).toBe(404);
+    expect(await page.title()).toBe("Page not found · WebAudit Pro");
+    expect(await page.getByRole("link", { name: "Go to Overview" }).count()).toBe(1);
+  });
+
   describe("UX acceptance (from the real UI)", () => {
     it("UX 1: the dashboard shows the getting-started guide, websites, attention cards and system status; the guide can be hidden", async () => {
       // Admin: every step is done here, so the guide stays out of the way.

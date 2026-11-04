@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { orNotFound, requireUser } from "@/app/lib/session";
 import { getRun, listRuns, queuePosition, runPages } from "@/server/runs";
 import { workerStatus } from "@/server/worker-status";
@@ -15,6 +16,15 @@ import { websiteHealth } from "@/server/health";
 import { WebsiteHealth } from "@/components/WebsiteHealth";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const r = getRun(await requireUser(), (await params).id);
+    return { title: `Audit ${new Date(r.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })} · ${r.project_name}` };
+  } catch {
+    return { title: "Not found" };
+  }
+}
 
 export default async function AuditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
